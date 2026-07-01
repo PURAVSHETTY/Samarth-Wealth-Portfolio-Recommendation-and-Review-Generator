@@ -365,7 +365,7 @@ def make_dashboard_donut(allocations, corpus_str, size=200):
     d.add(String(cx, cy + 5, "Total Corpus", textAnchor="middle",
                  fontName=FONT_SANS, fontSize=9, fillColor=DARK_GREY))
     d.add(String(cx, cy - 10, format_corpus_short(corpus_str), textAnchor="middle",
-                 fontName=FONT_UNICODE_SANS_BOLD, fontSize=18, fillColor=NAVY))
+                 fontName=FONT_UNICODE_SERIF_BOLD, fontSize=18, fillColor=NAVY))
     return d
 
 
