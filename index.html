@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Portfolio Recommendation Engine | Samarth Wealth</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- FontAwesome & Bootstrap 5 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Custom Style Sheet -->
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="stars-bg"></div>
+    <div class="glow-orb glow-1"></div>
+    <div class="glow-orb glow-2"></div>
+
+    <div class="container py-5 app-container">
+        <!-- Brand Header -->
+        <header class="d-flex flex-column flex-md-row justify-content-between align-items-md-center pb-4 mb-4 border-bottom border-secondary-subtle">
+            <div class="brand-logo d-flex align-items-center gap-3">
+                <span class="logo-symbol fs-2 text-warning"><i class="fa-solid fa-brain"></i></span>
+                <div class="logo-text">
+                    <h1 class="h3 mb-0 text-white font-outfit fw-bold tracking-wide">SAMARTH AI</h1>
+                    <p class="small text-warning uppercase-spacing mb-0">Clients First. Always and Everytime</p>
+                </div>
+            </div>
+            
+            <div class="api-key-container mt-3 mt-md-0 d-flex align-items-center gap-3">
+                <div class="api-key-input-wrapper">
+                    <i class="fa-solid fa-key text-warning"></i>
+                    <input type="password" id="gemini-key-input" class="bg-transparent border-0 text-white" placeholder="Optional: Enter Gemini API Key">
+                </div>
+                <div class="header-badge badge bg-dark-subtle border border-secondary text-warning px-3 py-2">
+                    <i class="fa-solid fa-microchip"></i> Engine v5.2
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Dashboard Layout -->
+        <div class="row g-4">
+            
+            <!-- Left Column: Upload Form -->
+            <div class="col-lg-5">
+                <div class="card bg-navy-card border border-secondary-subtle h-100 p-4 shadow-lg text-white">
+                    <div class="section-badge mb-3">STEP 1: UPLOAD TEMPLATE</div>
+                    
+                    <!-- Workflow Switcher Pills -->
+                    <div class="nav nav-pills nav-fill mb-4 bg-dark-subtle p-1 rounded-pill border border-secondary-subtle" id="workflow-tabs">
+                        <button class="nav-link active rounded-pill text-uppercase py-2" id="tab-recommendation" data-workflow="recommendation" type="button" style="font-size: 0.75rem; letter-spacing: 0.5px; font-weight: 600;">
+                            <i class="fa-solid fa-wand-magic-sparkles me-1"></i> Recommendation
+                        </button>
+                        <button class="nav-link rounded-pill text-uppercase py-2" id="tab-review" data-workflow="review" type="button" style="font-size: 0.75rem; letter-spacing: 0.5px; font-weight: 600;">
+                            <i class="fa-solid fa-chart-line me-1"></i> Review
+                        </button>
+                    </div>
+
+                    <h2 class="h4 font-outfit fw-bold mb-2" id="upload-card-title">Upload Portfolio Spreadsheet</h2>
+                    <p class="section-desc mb-4" id="upload-card-desc">Upload your completed client portfolio spreadsheet. Messy sheets and varying column header styles will be parsed dynamically by the AI system.</p>
+
+                    <!-- Multipart Form -->
+                    <form id="upload-form" method="POST" enctype="multipart/form-data" class="mb-4">
+                        <div id="drop-zone" class="drop-zone p-5 border border-dashed rounded text-center cursor-pointer mb-3">
+                            <input type="file" id="file-input" name="file" accept=".xlsx, .xls" hidden>
+                            <div class="drop-zone-content">
+                                <div class="icon-glow mx-auto mb-3">
+                                    <i class="fa-regular fa-file-excel drop-icon"></i>
+                                </div>
+                                <h3 class="h6 fw-bold">Drag & Drop Client Excel Here</h3>
+                                <p class="small text-muted mb-0">or <span class="text-warning text-decoration-underline">browse files</span></p>
+                                <span class="badge bg-secondary-subtle text-muted mt-3" id="uploaded-file-name">No file selected</span>
+                            </div>
+                        </div>
+
+                        <!-- Upload Progress Bar (Bootstrap) -->
+                        <div class="progress hidden" id="upload-progress-container" style="height: 10px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);">
+                            <div class="progress-bar progress-bar-striped progress-bar-animated bg-warning" role="progressbar" id="upload-progress-bar" style="width: 0%;"></div>
+                        </div>
+                        <div class="text-center mt-2 small text-muted hidden" id="upload-progress-text">Uploading: 0%</div>
+                    </form>
+
+                    <div class="quick-links d-flex align-items-center gap-2">
+                        <span class="small text-muted">Quick Actions:</span>
+                        <button class="btn btn-sm btn-outline-warning" id="load-sample-btn">
+                            <i class="fa-solid fa-wand-magic-sparkles"></i> Process Workspace Sample
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Column: Results & AI Execution -->
+            <div class="col-lg-7">
+                <div class="card bg-navy-card border border-secondary-subtle h-100 p-4 shadow-lg text-white">
+                    
+                    <!-- API Key Warning Block -->
+                    <div id="api-key-warning" class="alert alert-warning py-2 px-3 mb-3 small align-items-center gap-2 hidden" style="border-radius: 6px; border: 1px solid rgba(255, 193, 7, 0.3); background: rgba(255, 193, 7, 0.1); color: #ffc107;">
+                        <i class="fa-solid fa-triangle-exclamation"></i>
+                        <span>Gemini API Key is missing. The engine will use the local rules-based fallback.</span>
+                    </div>
+
+                    <!-- Unloaded State Card -->
+                    <div id="unloaded-container" class="text-center py-5">
+                        <i class="fa-solid fa-circle-info fs-1 text-muted mb-3"></i>
+                        <h3 class="h5 fw-bold">No Data Loaded</h3>
+                        <p class="section-desc max-w-400 mx-auto">Upload a client portfolio spreadsheet on the left to initialize the AI recommendation process.</p>
+                    </div>
+
+                    <!-- Loading State Screen -->
+                    <div id="loading-container" class="loading-state-panel hidden text-center py-5">
+                        <div class="pulse-ring mx-auto mb-3">
+                            <i class="fa-solid fa-brain brain-loading-icon"></i>
+                        </div>
+                        <h3 class="h5 fw-bold">AI is analyzing portfolio...</h3>
+                        <p class="section-desc max-w-400 mx-auto">Categorizing mutual funds, structuring asset allocations, and writing client-friendly rationales.</p>
+                    </div>
+
+                    <!-- Missing Fields Card (Visible if Excel is missing key attributes) -->
+                    <div class="card bg-navy-card border border-warning p-4 mb-4 hidden text-white" id="missing-fields-container">
+                        <h4 class="h5 text-warning fw-bold mb-2"><i class="fa-solid fa-circle-question"></i> Missing Required Details</h4>
+                        <p class="section-desc mb-3">Some critical details could not be detected automatically. Please specify them below to continue to AI analysis:</p>
+                        <div id="missing-fields-inputs" class="d-flex flex-column gap-3 mb-3">
+                            <!-- Dynamic inputs loaded here -->
+                        </div>
+                        <button class="btn btn-warning fw-bold text-dark w-100 py-2" id="submit-missing-fields-btn">
+                            <i class="fa-solid fa-play"></i> Continue to AI Analysis
+                        </button>
+                    </div>
+
+                    <!-- Parsed Success Dashboard -->
+                    <div id="parsed-container" class="hidden">
+                        <div class="section-badge bg-success text-dark mb-3">STEP 2: EXCEL PARSE SUCCESSFUL</div>
+                        <h2 class="h4 font-outfit fw-bold mb-1">Parsed Portfolio Details</h2>
+                        <p class="section-desc mb-4">The spreadsheet columns and sheets were successfully parsed on the server.</p>
+
+                        <!-- Client Summary Info Card -->
+                        <div class="card bg-dark border-secondary p-3 mb-3 text-white">
+                            <div class="row align-items-center">
+                                <div class="col-auto fs-3 text-warning"><i class="fa-solid fa-user-tie"></i></div>
+                                <div class="col">
+                                    <span class="small text-muted d-block text-uppercase letter-spacing-1">Client Name</span>
+                                    <strong id="client-name-display" class="fs-5">—</strong>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Sheet and Column Schema Info Card -->
+                        <div class="card bg-dark border-secondary p-3 mb-4 text-white" id="structure-info-card">
+                            <h4 class="h6 fw-bold text-uppercase tracking-wider text-warning mb-2"><i class="fa-solid fa-table-list"></i> Detected Sheets & Schema</h4>
+                            <div class="small text-light mb-2">
+                                <strong class="text-warning">Sheets:</strong> <span id="detected-sheets-display">—</span>
+                            </div>
+                            <div class="small text-light mb-2">
+                                <strong class="text-warning">Asset Allocation Columns:</strong> <span id="detected-alloc-cols-display">—</span>
+                            </div>
+                            <div class="small text-light mb-0">
+                                <strong class="text-warning">Products Columns:</strong> <span id="detected-prod-cols-display">—</span>
+                            </div>
+                        </div>
+
+                        <!-- Detected Products Scrollable List -->
+                        <h3 class="h6 fw-bold text-uppercase tracking-wider text-muted mb-2" id="list-header-title">Detected Products / Funds</h3>
+                        <div class="products-scroll-area border border-secondary rounded p-2 mb-4 bg-dark">
+                            <div class="list-group list-group-flush bg-transparent" id="detected-funds-list">
+                                <!-- Dynamic List items go here -->
+                            </div>
+                        </div>
+
+                        <!-- Review Specific Analytics Card (Only visible in Review workflow) -->
+                        <div class="card bg-dark border-secondary p-3 mb-4 text-white hidden" id="review-analytics-card">
+                            <h4 class="h6 fw-bold text-uppercase tracking-wider text-warning mb-2"><i class="fa-solid fa-chart-pie"></i> Asset Allocation & Variance</h4>
+                            <div class="table-responsive">
+                                <table class="table table-dark table-sm table-borderless mb-0 align-middle" style="font-size: 0.85rem;">
+                                    <thead>
+                                        <tr class="text-muted border-bottom border-secondary">
+                                            <th>Asset Class</th>
+                                            <th class="text-end">Current %</th>
+                                            <th class="text-end">Target %</th>
+                                            <th class="text-end">Variance</th>
+                                            <th class="text-end">Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="review-variance-table-body">
+                                        <!-- Loaded dynamically -->
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div class="mt-3 pt-3 border-top border-secondary small d-flex justify-content-between text-muted">
+                                <span>Weighted Expense Ratio: <strong class="text-white" id="weighted-expense-display">—</strong></span>
+                                <span>Weighted Sharpe Ratio: <strong class="text-white" id="weighted-sharpe-display">—</strong></span>
+                            </div>
+                        </div>
+
+
+
+                        <!-- Action Footer -->
+                        <div class="d-flex justify-content-between align-items-center pt-3 border-top border-secondary" id="parsed-action-footer">
+                            <span class="text-success small fw-semibold"><i class="fa-solid fa-circle-check"></i> Ready to process</span>
+                            <button class="btn btn-warning fw-bold text-dark px-4 py-2" id="generate-ai-btn">
+                                <i class="fa-solid fa-robot"></i> Generate AI Proposal
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- PDF Generation Download Screen -->
+                    <div id="download-container" class="hidden text-center py-5">
+                        <div class="success-glow-icon mx-auto mb-3">
+                            <i class="fa-solid fa-circle-check"></i>
+                        </div>
+                        <h3 class="h5 fw-bold text-success">Proposal Compiled Successfully!</h3>
+                        <p class="section-desc max-w-400 mx-auto mb-4">Gemini AI has categorized the assets and completed client-friendly rationales. Click below to download the ReportLab PDF.</p>
+                        
+                        <a href="#" id="download-pdf-btn" class="btn btn-lg btn-warning text-dark fw-bold px-5 py-3 shadow">
+                            <i class="fa-solid fa-cloud-arrow-down"></i> Download Proposal PDF
+                        </a>
+                        
+                        <div class="mt-4">
+                            <button class="btn btn-sm btn-outline-secondary" id="reset-pipeline-btn">
+                                <i class="fa-solid fa-rotate-left"></i> Upload Another File
+                            </button>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+        </div>
+
+        <footer class="text-center pt-5 mt-5 text-secondary small">
+            <p>© 2026 Samarth Wealth. Powered by Gemini AI, ReportLab & Flask.</p>
+        </footer>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast-notification" class="toast hidden">
+        <div class="toast-content">
+            <i class="fa-solid fa-circle-exclamation toast-icon" id="toast-icon"></i>
+            <span class="toast-message" id="toast-message">Processing template...</span>
+        </div>
+    </div>
+
+    <script src="/static/script.js"></script>
+</body>
+</html>
