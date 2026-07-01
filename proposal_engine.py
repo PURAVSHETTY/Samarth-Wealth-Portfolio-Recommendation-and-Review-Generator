@@ -41,31 +41,7 @@ def get_roman_numeral(n):
     return roman
 
 
-# Register TrueType fonts to support the Indian Rupee symbol (₹)
-try:
-    pdfmetrics.registerFont(TTFont('Arial', 'arial.ttf'))
-    pdfmetrics.registerFont(TTFont('Arial-Bold', 'arialbd.ttf'))
-    pdfmetrics.registerFont(TTFont('Arial-Italic', 'ariali.ttf'))
-    pdfmetrics.registerFont(TTFont('TimesNewRoman', 'times.ttf'))
-    pdfmetrics.registerFont(TTFont('TimesNewRoman-Bold', 'timesbd.ttf'))
-    pdfmetrics.registerFont(TTFont('TimesNewRoman-Italic', 'timesi.ttf'))
-    pdfmetrics.registerFont(TTFont('TimesNewRoman-BoldItalic', 'timesbi.ttf'))
-    FONT_SANS = "Arial"
-    FONT_SANS_BOLD = "Arial-Bold"
-    FONT_SANS_ITALIC = "Arial-Italic"
-    FONT_SERIF = "TimesNewRoman"
-    FONT_SERIF_BOLD = "TimesNewRoman-Bold"
-    FONT_SERIF_ITALIC = "TimesNewRoman-Italic"
-except Exception as e:
-    print(f"[proposal_engine] TrueType font registration failed: {e}. Falling back to standard Helvetica/Times.")
-    FONT_SANS = "Helvetica"
-    FONT_SANS_BOLD = "Helvetica-Bold"
-    FONT_SANS_ITALIC = "Helvetica-Oblique"
-    FONT_SERIF = "Times-Roman"
-    FONT_SERIF_BOLD = "Times-Bold"
-    FONT_SERIF_ITALIC = "Times-Italic"
-
-# Register local DejaVu Unicode fonts as a secondary set
+# Register local DejaVu Unicode fonts as the primary font set to support the Indian Rupee symbol (₹)
 try:
     current_dir = os.path.dirname(os.path.abspath(__file__))
     pdfmetrics.registerFont(TTFont('DejaVuSans', os.path.join(current_dir, 'DejaVuSans.ttf')))
@@ -74,20 +50,28 @@ try:
     pdfmetrics.registerFont(TTFont('DejaVuSerif', os.path.join(current_dir, 'DejaVuSerif.ttf')))
     pdfmetrics.registerFont(TTFont('DejaVuSerif-Bold', os.path.join(current_dir, 'DejaVuSerif-Bold.ttf')))
     pdfmetrics.registerFont(TTFont('DejaVuSerif-Italic', os.path.join(current_dir, 'DejaVuSerif-Italic.ttf')))
-    FONT_UNICODE_SANS = "DejaVuSans"
-    FONT_UNICODE_SANS_BOLD = "DejaVuSans-Bold"
-    FONT_UNICODE_SANS_ITALIC = "DejaVuSans-Italic"
-    FONT_UNICODE_SERIF = "DejaVuSerif"
-    FONT_UNICODE_SERIF_BOLD = "DejaVuSerif-Bold"
-    FONT_UNICODE_SERIF_ITALIC = "DejaVuSerif-Italic"
+    
+    FONT_SANS = "DejaVuSans"
+    FONT_SANS_BOLD = "DejaVuSans-Bold"
+    FONT_SANS_ITALIC = "DejaVuSans-Italic"
+    FONT_SERIF = "DejaVuSerif"
+    FONT_SERIF_BOLD = "DejaVuSerif-Bold"
+    FONT_SERIF_ITALIC = "DejaVuSerif-Italic"
 except Exception as e:
-    print(f"[proposal_engine] Unicode font registration failed: {e}. Falling back to original fonts.")
-    FONT_UNICODE_SANS = FONT_SANS
-    FONT_UNICODE_SANS_BOLD = FONT_SANS_BOLD
-    FONT_UNICODE_SANS_ITALIC = FONT_SANS_ITALIC
-    FONT_UNICODE_SERIF = FONT_SERIF
-    FONT_UNICODE_SERIF_BOLD = FONT_SERIF_BOLD
-    FONT_UNICODE_SERIF_ITALIC = FONT_SERIF_ITALIC
+    print(f"[proposal_engine] DejaVu Unicode font registration failed: {e}. Falling back to standard Helvetica/Times.")
+    FONT_SANS = "Helvetica"
+    FONT_SANS_BOLD = "Helvetica-Bold"
+    FONT_SANS_ITALIC = "Helvetica-Oblique"
+    FONT_SERIF = "Times-Roman"
+    FONT_SERIF_BOLD = "Times-Bold"
+    FONT_SERIF_ITALIC = "Times-Italic"
+
+FONT_UNICODE_SANS = FONT_SANS
+FONT_UNICODE_SANS_BOLD = FONT_SANS_BOLD
+FONT_UNICODE_SANS_ITALIC = FONT_SANS_ITALIC
+FONT_UNICODE_SERIF = FONT_SERIF
+FONT_UNICODE_SERIF_BOLD = FONT_SERIF_BOLD
+FONT_UNICODE_SERIF_ITALIC = FONT_SERIF_ITALIC
 
 # Mappings for bold/italic TrueType fonts to ensure <b> tags render correctly
 from reportlab.lib.fonts import addMapping
