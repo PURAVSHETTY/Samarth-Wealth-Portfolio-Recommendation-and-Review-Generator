@@ -1580,20 +1580,22 @@ def generate_review_pdf(review_context, output_path):
         h_inv = invested * scale
         h_cur = current * scale
         
-        w_bar = 35
-        x_inv = 105
-        x_cur = 205
+        # Exact original coordinates to preserve layout pixel-for-pixel
+        w_bar = 40
+        gap = 35
+        x_inv = (width / 2) - w_bar - (gap / 2)
+        x_cur = (width / 2) + (gap / 2)
         y_base = 15
         
-        # Draw dynamic grid lines and tick labels
+        # Draw dynamic grid lines and tick labels on the left side
         for i in range(best_num_ticks + 1):
             tick_lakhs = i * best_step
             y_tick = y_base + (tick_lakhs * 100000.0) * scale
             
-            d.add(Line(45, y_tick, width - 15, y_tick, strokeColor=colors.HexColor("#E2E8F0"), strokeWidth=0.5))
+            d.add(Line(60, y_tick, width - 20, y_tick, strokeColor=colors.HexColor("#E2E8F0"), strokeWidth=0.5))
             
             tick_str = f"{tick_lakhs:,.0f}" if tick_lakhs.is_integer() else f"{tick_lakhs:,.1f}"
-            d.add(String(40, y_tick - 3, tick_str, textAnchor="end", fontName=FONT_UNICODE_SANS, fontSize=7.5, fillColor=DARK_GREY))
+            d.add(String(55, y_tick - 3, tick_str, textAnchor="end", fontName=FONT_UNICODE_SANS, fontSize=7.5, fillColor=DARK_GREY))
             
         # Draw Amount (₹ Lakhs) label
         d.add(String(10, height - 8, "Amount (\u20b9 Lakhs)", fontName=FONT_UNICODE_SANS, fontSize=7.0, fillColor=DARK_GREY))
