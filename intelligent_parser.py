@@ -45,7 +45,9 @@ CLIENT_KEYS = {
     "Investment Horizon": ["investment horizon", "horizon", "term", "duration", "time horizon", "tenor", "period", "horizon (years)"],
     "Risk Profile": ["risk profile", "risk", "risk capacity", "risk assessment", "risk tolerance", "profile"],
     "Primary Objective": ["primary objective", "objective", "goal", "objectives", "target", "goals", "portfolio objective"],
-    "Tax Bracket": ["tax bracket", "tax", "tax rate", "tax bracket %"]
+    "Tax Bracket": ["tax bracket", "tax", "tax rate", "tax bracket %"],
+    "Executive Briefing": ["executive briefing", "exec briefing", "briefing", "summary briefing"],
+    "Portfolio Thesis & Market Overview": ["portfolio thesis & market overview", "portfolio thesis & market", "portfolio thesis", "market overview", "thesis", "thesis & market overview"]
 }
 
 def _classify_fund(product_name, category_or_class):

@@ -372,13 +372,14 @@ def make_dashboard_donut(allocations, corpus_str, size=200):
 def make_dashboard_legend_table(allocations):
     rows = []
     active_allocs = [a for a in allocations if clean_float(a.get("Allocation %", 0)) > 0]
+    dense = len(active_allocs) > 5
     
     # Legend headers
     legend_header_style = ParagraphStyle(
         "LegendHeader",
         fontName=FONT_SANS_BOLD,
-        fontSize=9,
-        leading=11,
+        fontSize=8.5 if dense else 9,
+        leading=10.5 if dense else 11,
         textColor=GOLD
     )
     rows.append([
@@ -394,36 +395,41 @@ def make_dashboard_legend_table(allocations):
         pct_str = str(a.get("Allocation %", 0)).replace("%", "").strip()
         name_val = str(a.get("Segment Name", ""))
         sub_val = str(a.get("AMFI_Subtitle", ""))
+        
+        fs_name = 9.0 if dense else 11.5
+        lead_name = 11.0 if dense else 14.5
+        fs_desc = 8.0 if dense else 10.5
+        lead_desc = 10.5 if dense else 14.5
+        
         if sub_val:
-            name = f"{name_val}<br/><font size='8.5' color='#9A6A00'><b>{sub_val}</b></font>"
+            name = f"{name_val}<br/><font size='{fs_name - 1.5}' color='#9A6A00'><b>{sub_val}</b></font>"
         else:
             name = name_val
         desc = str(a.get("Objective", ""))
         
-        # Color square drawing - aligned slightly higher to align with text
-        sq = Drawing(10, 10)
-        sq.add(Rect(0, 1, 8, 8, fillColor=color, strokeColor=None))
+        # Color square drawing
+        sq = Drawing(8 if dense else 10, 8 if dense else 10)
+        sq.add(Rect(0, 1, 6 if dense else 8, 6 if dense else 8, fillColor=color, strokeColor=None))
         
-        # Text styles - tighter sizing and leading
         pct_style = ParagraphStyle(
             f"PctStyle_{i}",
             fontName=FONT_SANS_BOLD,
-            fontSize=11.5,
-            leading=14.5,
+            fontSize=fs_name,
+            leading=lead_name,
             textColor=color
         )
         name_style = ParagraphStyle(
             f"NameStyle_{i}",
             fontName=FONT_SANS_BOLD,
-            fontSize=11.5,
-            leading=14.5,
+            fontSize=fs_name,
+            leading=lead_name,
             textColor=NAVY
         )
         desc_style = ParagraphStyle(
             f"DescStyle_{i}",
             fontName=FONT_SANS,
-            fontSize=10.5,
-            leading=14.5,
+            fontSize=fs_desc,
+            leading=lead_desc,
             textColor=DARK_GREY
         )
         
@@ -434,7 +440,6 @@ def make_dashboard_legend_table(allocations):
             Paragraph(desc, desc_style)
         ])
         
-    # Safeguard against empty legendary listings
     if len(rows) == 1:
         placeholder_style = ParagraphStyle(
             "PlaceholderStyle",
@@ -457,14 +462,19 @@ def make_dashboard_legend_table(allocations):
             Paragraph("Please provide allocation details in template", placeholder_style)
         ])
         
-    t = Table(rows, colWidths=[12, 45, 155, W_net - 160 - 12 - 45 - 155], hAlign='LEFT')
+    col_w_color = 10 if dense else 12
+    col_w_pct = 35 if dense else 45
+    col_w_name = 145 if dense else 155
+    col_w_desc = W_net - (135 if dense else 160) - col_w_color - col_w_pct - col_w_name
+    
+    t = Table(rows, colWidths=[col_w_color, col_w_pct, col_w_name, col_w_desc], hAlign='LEFT')
     t.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("TOPPADDING", (0, 0), (-1, -1), 3),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ("TOPPADDING", (0, 0), (-1, -1), 1.0 if dense else 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 1.0 if dense else 3),
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
         ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-        ("LINEBELOW", (0, 0), (-1, 0), 0.75, GOLD), # Accent line under headers
+        ("LINEBELOW", (0, 0), (-1, 0), 0.75, GOLD),
     ]))
     return t
 
@@ -1299,7 +1309,7 @@ def generate_pdf_from_data(data, output_path=None):
     # ─────────────────────────────────────────────────────────────────────────
     # Page 3: Investment Proposal Summary
     # ─────────────────────────────────────────────────────────────────────────
-    story.append(NextPageTemplate('Later'))
+    story.append(NextPageTemplate('SummaryTemplate'))
     story.append(PageBreak())
     
     # Page 3 Top Header
@@ -1308,24 +1318,24 @@ def generate_pdf_from_data(data, output_path=None):
     if not os.path.exists(logo_img_path):
         if os.path.exists("extracted_img_p2_1_147.jpeg"):
             logo_img_path = "extracted_img_p2_1_147.jpeg"
-
+ 
     if os.path.exists(logo_img_path):
         p3_logo = Image(logo_img_path, width=100.8, height=63)
     else:
         p3_logo = make_image_placeholder("Samarth Wealth", width=100.8, height=63)
-
+ 
     header_left = [
         p3_logo,
         Spacer(1, 6),
         Paragraph("INVESTMENT PROPOSAL SUMMARY", style("P3H1", fontName=FONT_SANS_BOLD, fontSize=9.5, leading=12, textColor=GOLD)),
         Paragraph(client_name, style("P3H2", fontName=FONT_SERIF_BOLD, fontSize=24, leading=28, textColor=NAVY))
     ]
-
+ 
     # Founder signature block removed from top-right per requirement
     header_right = [
         Spacer(1, 8)
     ]
-
+ 
     header_table = Table([[header_left, header_right]], colWidths=[W_net * 0.65, W_net * 0.35], hAlign='LEFT')
     header_table.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
@@ -1335,19 +1345,26 @@ def generate_pdf_from_data(data, output_path=None):
         ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
     ]))
     story.append(header_table)
-    story.append(HRFlowable(width="100%", thickness=1, color=GOLD, spaceBefore=2, spaceAfter=6))
+    
+    # Dynamic scaling to fit on Page 4 without overflow
+    active_allocs = [a for a in allocs if clean_float(a.get("Allocation %", 0)) > 0]
+    dense = len(active_allocs) > 5
+    donut_size = 125 if dense else 160
+    col_w_donut = 135 if dense else 160
+    
+    story.append(HRFlowable(width="100%", thickness=1, color=GOLD, spaceBefore=2, spaceAfter=3 if dense else 6))
     
     # Dashboard layout: Pie on left, details on right (Tightened & Proportional)
-    donut_draw = make_dashboard_donut(allocs, client.get("Portfolio Corpus (INR)", "10,00,00,000"), size=160)
+    donut_draw = make_dashboard_donut(allocs, client.get("Portfolio Corpus (INR)", "10,00,00,000"), size=donut_size)
     legend_table = make_dashboard_legend_table(allocs)
     
     right_dashboard = [
-        Paragraph("Asset Allocation Dashboard", style("P3DashTitle", fontName=FONT_SERIF_BOLD, fontSize=14, leading=17, textColor=NAVY)),
-        Spacer(1, 4),
+        Paragraph("Asset Allocation Dashboard", style("P3DashTitle", fontName=FONT_SERIF_BOLD, fontSize=12.5 if dense else 14, leading=15 if dense else 17, textColor=NAVY)),
+        Spacer(1, 2 if dense else 4),
         legend_table
     ]
     
-    dash_table = Table([[donut_draw, right_dashboard]], colWidths=[160, W_net - 160], hAlign='LEFT')
+    dash_table = Table([[donut_draw, right_dashboard]], colWidths=[col_w_donut, W_net - col_w_donut], hAlign='LEFT')
     dash_table.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
@@ -1358,54 +1375,55 @@ def generate_pdf_from_data(data, output_path=None):
     story.append(dash_table)
     
     # ── Narrative briefing card/panel at bottom (Tightly structured, reduces white space) ──
-    story.append(Spacer(1, 8))
-    
+    story.append(Spacer(1, 6 if dense else 10))
+ 
     exec_summary_text = data.get("executive_summary", "")
-    thesis_text = data.get("portfolio_thesis", "")
-    
+    thesis_text       = data.get("portfolio_thesis", "")
+ 
     summary_style = ParagraphStyle(
         "SummaryText",
         parent=BODY,
-        fontSize=10.5,
-        leading=14.5,
+        fontSize=9.0 if dense else 9.5,
+        leading=12.5 if dense else 13.5,
         textColor=DARK_GREY,
         spaceAfter=0
     )
     title_style = ParagraphStyle(
         "SummaryTitle",
         parent=TITLE_SMALL,
-        fontSize=11.5,
-        leading=14,
+        fontSize=11.0 if dense else 11.5,
+        leading=13.5 if dense else 14,
         textColor=NAVY,
         fontName=FONT_SERIF_BOLD,
         spaceAfter=2
     )
-    
+ 
     col1_content = [
         Paragraph("EXECUTIVE BRIEFING", title_style),
         make_gold_bar(30, 1.5),
-        Spacer(1, 3),
+        Spacer(1, 2 if dense else 4),
         Paragraph(exec_summary_text, summary_style)
     ]
     col2_content = [
         Paragraph("PORTFOLIO THESIS & MARKET OVERVIEW", title_style),
         make_gold_bar(30, 1.5),
-        Spacer(1, 3),
+        Spacer(1, 2 if dense else 4),
         Paragraph(thesis_text, summary_style)
     ]
-    
+ 
     summary_table = Table([[col1_content, col2_content]], colWidths=[W_net * 0.50, W_net * 0.50], hAlign='CENTER')
     summary_table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#FAF9F5")), # Very light cream background card
         ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E1")), # Slate-300 border
         ("LINEBEFORE", (1, 0), (1, -1), 0.5, colors.HexColor("#E2E8F0")), # Inner column divider line
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("TOPPADDING", (0, 0), (-1, -1), 10),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
-        ("LEFTPADDING", (0, 0), (-1, -1), 12),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 12),
+        ("TOPPADDING", (0, 0), (-1, -1), 6 if dense else 10),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6 if dense else 10),
+        ("LEFTPADDING", (0, 0), (-1, -1), 10 if dense else 12),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 10 if dense else 12),
     ]))
     story.append(summary_table)
+
 
     # ─────────────────────────────────────────────────────────────────────────
     # Page 4: Detailed Recommendation Summary (Merged Table, flows naturally)

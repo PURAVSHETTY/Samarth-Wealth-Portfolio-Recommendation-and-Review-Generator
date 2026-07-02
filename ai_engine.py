@@ -1799,18 +1799,8 @@ def call_llm_api(prompt, api_key, temperature=0.95):
     Unified REST API client for Gemini and OpenAI to bypass library installation issues.
     Routes keys starting with 'sk-' to OpenAI Chat Completions, and others to Google Gemini generateContent.
     """
-    # 7. Check if Render environment variables are correctly accessible during runtime
-    env_gemini_key = os.environ.get("GEMINI_API_KEY")
-    env_openai_key = os.environ.get("OPENAI_API_KEY")
-    print("[AI Engine REST] Runtime environment check:")
-    print(f"  - os.environ.get('GEMINI_API_KEY') exists: {bool(env_gemini_key)} (len: {len(env_gemini_key) if env_gemini_key else 0})")
-    print(f"  - os.environ.get('OPENAI_API_KEY') exists: {bool(env_openai_key)} (len: {len(env_openai_key) if env_openai_key else 0})")
-    
     if not api_key:
-        print("Gemini API FAILED")
-        print("  - Reason: API key is empty/missing in call_llm_api")
-        print("Fallback Engine Activated")
-        print("  - Reason: Empty API Key")
+        print("[AI Engine ERROR] API key is empty.")
         raise ValueError("API key is empty.")
     
     api_key = api_key.strip()
@@ -1831,56 +1821,39 @@ def call_llm_api(prompt, api_key, temperature=0.95):
         }
         
         try:
-            print("[AI Engine REST] Calling OpenAI REST API with model: gpt-4o-mini...")
-            print(f"  - Sending request to OpenAI Chat Completions endpoint: {url}")
+            print("[AI Engine] AI request started (OpenAI model: gpt-4o-mini)")
             response = requests.post(url, headers=headers, json=payload, timeout=45)
+            print("[AI Engine] Request sent successfully")
             status_code = response.status_code
-            print(f"  - OpenAI HTTP status code returned: {status_code}")
             
-            # Check if request successfully reached server and got a response
             if 200 <= status_code < 300:
-                print("Gemini API LIVE SUCCESS")
-                print(f"  - Detail: OpenAI API succeeded with status {status_code}")
+                print("[AI Engine] Response received successfully")
                 res_json = response.json()
                 return res_json["choices"][0]["message"]["content"]
             else:
-                err_text = response.text
-                print("Gemini API FAILED")
-                print(f"  - Reason: OpenAI HTTP {status_code} - {err_text}")
+                print(f"[AI Engine ERROR] OpenAI HTTP {status_code} received")
                 response.raise_for_status()
         except Exception as e:
-            print(f"[AI Engine REST] OpenAI gpt-4o-mini failed: {e}. Trying model gpt-4o...")
+            print(f"[AI Engine] OpenAI gpt-4o-mini call failed: {e}. Trying gpt-4o...")
             payload["model"] = "gpt-4o"
             try:
                 response = requests.post(url, headers=headers, json=payload, timeout=45)
                 status_code = response.status_code
-                print(f"  - OpenAI HTTP status code returned: {status_code}")
                 if 200 <= status_code < 300:
-                    print("Gemini API LIVE SUCCESS")
-                    print(f"  - Detail: OpenAI (gpt-4o) succeeded with status {status_code}")
+                    print("[AI Engine] Response received successfully")
                     res_json = response.json()
                     return res_json["choices"][0]["message"]["content"]
                 else:
-                    err_text = response.text
-                    print("Gemini API FAILED")
-                    print(f"  - Reason: OpenAI HTTP {status_code} - {err_text}")
+                    print(f"[AI Engine ERROR] OpenAI HTTP {status_code} received")
                     response.raise_for_status()
             except Exception as e2:
-                print("Gemini API FAILED")
-                print(f"  - Reason: OpenAI call failed (Detail: {e2})")
+                print(f"[AI Engine ERROR] OpenAI call failed: {e2}")
                 raise e2
                 
     else:
-        # Mask the API key for logging
-        masked_key = ""
-        if api_key:
-            if len(api_key) > 8:
-                masked_key = f"{api_key[:6]}...{api_key[-4:]}"
-            else:
-                masked_key = "..."
-        
         # Dynamically determine the best supported model name
         model_name = get_supported_gemini_model(api_key)
+        print(f"[AI Engine] AI request started (Gemini model: {model_name})")
         
         # Define the actual endpoint URL, headers, and payload for Gemini REST API
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
@@ -1901,51 +1874,29 @@ def call_llm_api(prompt, api_key, temperature=0.95):
             }
         }
         
-        masked_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={masked_key}"
-        
-        print("==================================================")
-        print(f"[AI Engine REST] URL constructed: {masked_url}")
-        print(f"[AI Engine REST] Model name: {model_name}")
-        print(f"[AI Engine REST] API Key length: {len(api_key) if api_key else 0}")
-        print(f"[AI Engine REST] API Key prefix/suffix: {masked_key}")
-        print("FINAL GEMINI REQUEST PAYLOAD:")
-        print(json.dumps(payload, indent=2))
-        print("==================================================")
-        
         reached_google = False
         try:
-            print(f"[AI Engine REST] Calling Gemini REST API (v1beta/{model_name})...")
-            print(f"  - Sending request to Google Generative Language endpoint: {masked_url}")
-            
             response = requests.post(url, headers=headers, json=payload, timeout=45)
+            print("[AI Engine] Request sent successfully")
             reached_google = True
             status_code = response.status_code
             
-            print(f"  - Gemini HTTP status code returned: {status_code}")
-            print(f"  - Gemini HTTP status phrase: {response.reason}")
-            print("FINAL GEMINI RAW RESPONSE:")
-            print(response.text)
-            
-            if status_code != 200:
-                print(f"[AI Engine REST] ERROR response received!")
-                print(f"  - HTTP Status: {status_code}")
-                print(f"  - Response Body: {response.text}")
+            if status_code == 200:
+                print("[AI Engine] Response received successfully")
+            else:
+                print(f"[AI Engine ERROR] HTTP {status_code} received from Gemini API")
                 
             if status_code == 429:
-                print("Gemini API FAILED")
-                print("  - Reason: Quota/Rate-limit/Free-tier restrictions exceeded (HTTP 429 Too Many Requests)")
+                print("[AI Engine ERROR] Quota/Rate-limit restrictions exceeded (HTTP 429)")
                 response.raise_for_status()
             elif status_code == 400:
-                print("Gemini API FAILED")
-                print(f"  - Reason: Bad Request (HTTP 400). Response: {response.text}")
+                print("[AI Engine ERROR] Bad Request (HTTP 400)")
                 response.raise_for_status()
             elif status_code == 403:
-                print("Gemini API FAILED")
-                print(f"  - Reason: Forbidden (HTTP 403). Possible invalid key or region restrictions. Response: {response.text}")
+                print("[AI Engine ERROR] Forbidden (HTTP 403) - verify API key")
                 response.raise_for_status()
             elif status_code == 404:
-                print("Gemini API FAILED")
-                print(f"  - Reason: Not Found (HTTP 404). Endpoint or Model not found. Response: {response.text}")
+                print("[AI Engine ERROR] Not Found (HTTP 404) - endpoint or model unavailable")
                 response.raise_for_status()
                 
             response.raise_for_status()
@@ -1958,21 +1909,13 @@ def call_llm_api(prompt, api_key, temperature=0.95):
                 if parts:
                     text_out = parts[0].get("text", "")
                     if text_out:
-                        print("Gemini API LIVE SUCCESS")
-                        print(f"  - Model: {model_name}, API Version: v1beta")
-                        print("  - Reason: API successfully returned text content.")
+                        print("[AI Engine] Response parsed successfully")
                         return text_out
                         
-            print("Gemini API FAILED")
-            print(f"  - Reason: Gemini returned an empty response or unexpected structure (HTTP {status_code})")
+            print("[AI Engine ERROR] Gemini returned an empty response or unexpected structure")
             raise ValueError(f"Unexpected response format from Gemini: {res_json}")
         except Exception as e:
-            print(f"[AI Engine REST] Gemini REST call failed: {e}")
-            print("Gemini API FAILED")
-            if not reached_google:
-                print("  - Reason: Network connection could not be established with Google endpoints.")
-            else:
-                print(f"  - Reason: Gemini API call failed. Error: {e}")
+            print(f"[AI Engine ERROR] Gemini REST call failed: {e}")
             raise e
 
 
@@ -2050,13 +1993,7 @@ def generate_ai_portfolio(client_data, fund_data, api_key=None):
     client_data["market_positioning"] = profile["market_positioning"]
 
     # Print Validation Logs
-    print("=================== PORTFOLIO NARRATIVE VALIDATION ===================")
-    print(f"Client Name: {profile['client_name']}")
-    print(f"International exposure detected: {'Yes' if profile.get('has_intl', False) else 'No'}")
-    print(f"Domestic-only portfolio: {'Yes' if not profile.get('has_intl', False) else 'No'}")
-    print(f"Selected briefing theme: {profile['portfolio_theme']}")
-    print(f"Selected portfolio thesis theme: {profile['portfolio_theme']}")
-    print("======================================================================")
+    print(f"[AI Engine] Analyzing portfolio (Theme: {profile['portfolio_theme']})")
 
     # 2. Clean and parse corpus value
     corpus = clean_float_val(client_data.get("Portfolio Corpus (INR)", "0"))
@@ -2137,11 +2074,18 @@ def generate_ai_portfolio(client_data, fund_data, api_key=None):
             print("Dynamic AI rationale generated: Yes")
             print("Static Excel rationale injected: No")
         
+        # Check if Excel has these values
+        excel_exec_brief = client_data.get("Executive Briefing", "").strip()
+        excel_thesis = client_data.get("Portfolio Thesis & Market Overview", "").strip()
+        
+        exec_summary = excel_exec_brief if excel_exec_brief else local_briefings["executive_summary"]
+        thesis = excel_thesis if excel_thesis else local_briefings["portfolio_thesis"]
+
         ensure_unique_rationales(cleaned_products, profile)
         return {
             "portfolio_theme": profile["portfolio_theme"],
-            "executive_summary": scrub_forbidden_phrases(local_briefings["executive_summary"]),
-            "portfolio_thesis": scrub_forbidden_phrases(local_briefings["portfolio_thesis"]),
+            "executive_summary": scrub_forbidden_phrases(exec_summary),
+            "portfolio_thesis": scrub_forbidden_phrases(thesis),
             "market_commentary": scrub_forbidden_phrases(local_briefings["market_commentary"]),
             "allocation": allocations,
             "products": cleaned_products
@@ -2241,6 +2185,13 @@ def generate_ai_portfolio(client_data, fund_data, api_key=None):
         else:
             intl_constraint = ""
 
+        # Check if Excel has these values
+        excel_exec_brief = client_data.get("Executive Briefing", "").strip()
+        excel_thesis = client_data.get("Portfolio Thesis & Market Overview", "").strip()
+
+        briefing_instruction_1 = " (Since the client has already provided their own Executive Briefing in the Excel, do NOT write a new one; simply return an empty string for this field.)" if excel_exec_brief else ""
+        briefing_instruction_2 = " (Since the client has already provided their own Portfolio Thesis & Market Overview in the Excel, do NOT write a new one; simply return an empty string for this field.)" if excel_thesis else ""
+
         prompt = f"""
         You are a premium private wealth management advisor at a top-tier institutional firm.
         Generate a fully customized, professional investment portfolio proposal for this client.
@@ -2332,19 +2283,20 @@ def generate_ai_portfolio(client_data, fund_data, api_key=None):
         9. Weave the client's name ({short_client}) naturally into the rationale to guarantee it is completely unique and personalized for their portfolio.
         10. Treat this as a completely new request: do not reuse any rationale sentences from older runs or reports. Prioritize high variation in rationale wording. Make sure that if the same fund appears in different client portfolios, the generated rationale is completely different and tailored to each client's specific situation.
         11. Write in a natural, conversational, premium wealth advisor tone. Do not mention any prompt rules, perspective names, or seed constraints in your final text.
+        13. TERMINOLOGY RULE: You MUST NOT use custom marketing segment names (such as 'Adaptive Hybrid Core', 'Distributed Strategic Enablers', 'Holistic Equity Growth', 'Accelerated Alpha Seeker', etc.) anywhere in your narratives, summaries, thesis, or product rationales. Instead, always use the official, dynamically determined AMFI Mutual Fund category names (such as 'Balanced Advantage Fund', 'Aggressive Hybrid Fund', 'Multi Asset Allocation Fund', 'Multi Cap Fund', 'Small Cap Fund', etc.) when referencing the portfolio segments.
         {intl_constraint}
         
         Tasks:
         1. Generate:
            - "portfolio_theme": Verify and output the selected portfolio theme ("{profile["portfolio_theme"]}").
-           - "executive_summary": A high-end narrative briefing summarizing this proposal tailored for the client.
-           - "portfolio_thesis": A strategic macro-level explanation of our asset allocation reasoning.
+           - "executive_summary": A high-end narrative briefing summarizing this proposal tailored for the client.{briefing_instruction_1}
+           - "portfolio_thesis": A strategic macro-level explanation of our asset allocation reasoning.{briefing_instruction_2}
            - "market_commentary": An institutional-grade market overview describing why this mix makes sense in the current economic environment.
-           - "segment_names": Recommend personalized, client-friendly category names for each of the 4 Parts (1, 2, 3, and 4) based on client profile.
-             - Key "1": Name for Part 1 (Liquid Fund sleeve). E.g. "Capital Stability Sleeve", "Safety Reserve".
-             - Key "2": Name for Part 2 (Corporate Bond Fund sleeve). E.g. "Reliable Income Hub", "Fixed Income Sleeve".
-             - Key "3": Name for Part 3 (Multi Asset Allocation Fund sleeve). E.g. "Strategic Diversified Sleeve", "Hedged Growth Hub".
-             - Key "4": Name for Part 4 (Wealth Creation sleeve). E.g. "Generational Wealth Compounder", "Capital Compounding Sleeve".
+           - "segment_names": Provide the official AMFI Mutual Fund category name (e.g., 'Balanced Advantage Fund', 'Aggressive Hybrid Fund', 'Multi Asset Allocation Fund', 'Multi Cap Fund', 'Small Cap Fund', etc.) for each of the 4 Parts (1, 2, 3, and 4) based on the recommended products.
+             - Key "1": Official AMFI Category name for Part 1 (Liquid Fund sleeve).
+             - Key "2": Official AMFI Category name for Part 2 (Corporate Bond Fund sleeve).
+             - Key "3": Official AMFI Category name for Part 3 (Multi Asset Allocation Fund sleeve).
+             - Key "4": Official AMFI Category name for Part 4 (Wealth Creation sleeve).
         
         2. Write a simple client-friendly expanded rationale for EACH product. Break it down into exactly these 8 points:
            - "summary_rationale": A concise CORE RATIONALE of 20-30 words maximum (max 2 sentences) answering: Why was this fund selected?
@@ -2363,10 +2315,10 @@ def generate_ai_portfolio(client_data, fund_data, api_key=None):
           "portfolio_thesis": "Strategic macro-level allocation explanation...",
           "market_commentary": "Institutional market outlook...",
           "segment_names": {{
-            "1": "Custom segment name for Part 1",
-            "2": "Custom segment name for Part 2",
-            "3": "Custom segment name for Part 3",
-            "4": "Custom segment name for Part 4"
+            "1": "Official AMFI Category Name for Part 1",
+            "2": "Official AMFI Category Name for Part 2",
+            "3": "Official AMFI Category Name for Part 3",
+            "4": "Official AMFI Category Name for Part 4"
           }},
           "products": [
             {{
@@ -2387,22 +2339,7 @@ def generate_ai_portfolio(client_data, fund_data, api_key=None):
         text = call_llm_api(prompt, api_key, temperature=selected_temp).strip()
         api_succeeded = True
         
-        # 7. RAW AI RESPONSE LENGTH: X
-        print(f"RAW AI RESPONSE LENGTH: {len(text)}")
-        
-        # 1. Print the FULL raw Gemini/OpenAI API response body to logs BEFORE any parsing
-        print("RAW AI RESPONSE BODY:\n" + text)
-        
-        # 8. Verify whether the model is returning JSON wrapped in ```json code fences
-        print(f"Is response wrapped in code fences? {text.startswith('```')}")
-        
-        # 3. Print whether the API returned markdown-wrapped JSON, malformed JSON, partial fields, escaped characters, or truncated output
-        import re
-        import sys
-        contains_escaped = bool(re.search(r'\\.', text))
-        ends_with_brace = text.strip().endswith("}")
-        print(f"  - String Info: Escaped characters present: {contains_escaped}")
-        print(f"  - String Info: Ends with closing brace (not truncated): {ends_with_brace}")
+
         
         # 9. Strip markdown code fences automatically before parsing (robust regex)
         cleaned_text = text.strip()
@@ -2438,21 +2375,9 @@ def generate_ai_portfolio(client_data, fund_data, api_key=None):
         portfolio_theme = result.get("portfolio_theme") or profile["portfolio_theme"]
         client_data["portfolio_theme"] = portfolio_theme
         
-        # Overwrite segment names dynamically if provided in result
-        ai_segment_names = result.get("segment_names") or {}
-        ai_segment_names = {str(k): v for k, v in ai_segment_names.items()}
-        for part_key in ["1", "2", "3", "4"]:
-            part_num = int(part_key)
-            if part_key in ai_segment_names and ai_segment_names[part_key]:
-                custom_name = scrub_forbidden_phrases(simplify_jargon(str(ai_segment_names[part_key]).strip()))
-                # Update allocations list
-                for a in allocations:
-                    if int(a["Part"]) == part_num:
-                        a["Segment Name"] = custom_name
-                # Update products list
-                for p in cleaned_products:
-                    if int(p["Part"]) == part_num:
-                        p["Segment"] = custom_name
+        # Do NOT overwrite segment names with custom segment names from the LLM.
+        # Instead, consistently use the official AMFI Mutual Fund category names dynamically determined in Python.
+        pass
                         
         gemini_products = result.get("products", [])
         
@@ -2561,49 +2486,20 @@ def generate_ai_portfolio(client_data, fund_data, api_key=None):
                     p[k_target] = rat_card[k_target.lower().replace(" ", "_")]
                     
         # Log dynamic API success parameters (Stdout)
-        print("Gemini API successfully used")
-        print(f"  - Temperature used: {selected_temp}")
-        print(f"  - Style selected: {selected_style}")
-        print("  - API Request: Succeeded")
-        print("  - AI Output Accepted Directly: Yes")
-        print(f"  - Fallback Activated: {'Yes (Partial)' if fallback_activated_count > 0 else 'No'}")
-        print("  - Post-Processing Modified Response: No (Raw AI wording preserved without simplify_jargon/scrub_forbidden_phrases)")
-        print(f"  - Raw AI Output (first 500 chars): {text[:500]}...")
-        has_any_excel_rationale = any(
-            p.get("Core Rationale") and len(str(p.get("Core Rationale")).strip()) > 2 and str(p.get("Core Rationale")).lower() != "nan"
-            for p in cleaned_products
-        )
-        if has_any_excel_rationale:
-            print("Excel rationale ignored: No")
-            print("Dynamic AI rationale generated: No")
-            print("Static Excel rationale injected: Yes")
-        else:
-            print("Excel rationale ignored: Yes")
-            print("Dynamic AI rationale generated: Yes")
-            print("Static Excel rationale injected: No")
+        print("[AI Engine] Response validated successfully")
         
-        # Did it pass validation?
-        # A response passes validation if fallback_activated_count == 0
-        total_fields = len(cleaned_products) * len(qual_keys)
-        passed_fields = total_fields - fallback_activated_count
-        if fallback_activated_count == 0:
-            print(f"  - Response Validation: Passed ({passed_fields}/{total_fields} fields passed)")
-        else:
-            print(f"  - Response Validation: Warnings ({passed_fields} fields passed, {fallback_activated_count} fields failed/missing)")
-            print(f"  - Fallback Templates: Activated for {fallback_activated_count} fields")
-            
-        # Any parsing/matching failures?
-        matching_failures = len(cleaned_products) - matched_count
-        if matching_failures > 0:
-            print(f"  - Gemini Parsing/Matching Failures: {matching_failures} products failed to match")
-        else:
-            print("  - Gemini Parsing/Matching Failures: None")
+        # Check if Excel has these values
+        excel_exec_brief = client_data.get("Executive Briefing", "").strip()
+        excel_thesis = client_data.get("Portfolio Thesis & Market Overview", "").strip()
         
+        exec_summary = excel_exec_brief if excel_exec_brief else (str(result.get("executive_summary")).strip() if result.get("executive_summary") else local_briefings["executive_summary"])
+        thesis = excel_thesis if excel_thesis else (str(result.get("portfolio_thesis")).strip() if result.get("portfolio_thesis") else local_briefings["portfolio_thesis"])
+
         ensure_unique_rationales(cleaned_products, profile)
         return {
             "portfolio_theme": portfolio_theme,
-            "executive_summary": str(result.get("executive_summary")).strip() if result.get("executive_summary") else scrub_forbidden_phrases(local_briefings["executive_summary"]),
-            "portfolio_thesis": str(result.get("portfolio_thesis")).strip() if result.get("portfolio_thesis") else scrub_forbidden_phrases(local_briefings["portfolio_thesis"]),
+            "executive_summary": scrub_forbidden_phrases(exec_summary),
+            "portfolio_thesis": scrub_forbidden_phrases(thesis),
             "market_commentary": str(result.get("market_commentary")).strip() if result.get("market_commentary") else scrub_forbidden_phrases(local_briefings["market_commentary"]),
             "allocation": allocations,
             "products": cleaned_products
@@ -2611,39 +2507,7 @@ def generate_ai_portfolio(client_data, fund_data, api_key=None):
         
     except Exception as e:
         error_detail = str(e)
-        print("Fallback rationale engine used")
-        print(f"  - Temperature used: {selected_temp}")
-        print(f"  - Style selected: {selected_style}")
-        print("  - Whether fallback activated: Yes")
-        
-        # 4. Print Fallback Engine Activated inside Render logs with the exact reason
-        print("Fallback Engine Activated")
-        print("  - AI Output Accepted Directly: No")
-        print("  - Fallback Activated: Yes")
-        print("  - Post-Processing Modified Response: Yes (Fallback templates normalized via simplify_jargon/scrub_forbidden_phrases)")
-        
-        if 'text' in locals() and text:
-            print(f"  - Raw AI Output (failed parsing): {text[:500]}...")
-        else:
-            print("  - Raw AI Output: None (API call failed)")
-            
-        if not api_succeeded:
-            print("  - API Request: Failed")
-            print(f"  - Reason: API request failed (Detail: {error_detail})")
-            print("  - Response Validation: N/A")
-            print("  - Gemini Parsing/Matching Failures: N/A")
-        elif not parsing_succeeded:
-            print("  - API Request: Succeeded")
-            print("  - Response Validation: Failed")
-            print(f"  - Reason: JSON parsing failed (Detail: {error_detail})")
-            print("  - Gemini Parsing/Matching Failures: Parsing failed")
-        else:
-            print("  - API Request: Succeeded")
-            print("  - Response Validation: Failed")
-            print(f"  - Reason: Processing/matching/validation failed (Detail: {error_detail})")
-            print(f"  - Gemini Parsing/Matching Failures: Detail: {error_detail}")
-            
-        traceback.print_exc()
+        print(f"[AI Engine ERROR] Fallback activated. Detail: {error_detail}")
         
         # Apply local rationales for each product
         for p in cleaned_products:
@@ -2659,15 +2523,20 @@ def generate_ai_portfolio(client_data, fund_data, api_key=None):
             p["Downside Protection"] = scrub_forbidden_phrases(simplify_jargon(rat_card["downside_protection"]))
             p["Diversification Benefit"] = scrub_forbidden_phrases(simplify_jargon(rat_card["diversification_benefit"]))
             
-        print("Excel rationale ignored: Yes")
-        print("Dynamic AI rationale generated: Yes")
-        print("Static Excel rationale injected: No")
+
             
+        # Check if Excel has these values
+        excel_exec_brief = client_data.get("Executive Briefing", "").strip()
+        excel_thesis = client_data.get("Portfolio Thesis & Market Overview", "").strip()
+        
+        exec_summary = excel_exec_brief if excel_exec_brief else local_briefings["executive_summary"]
+        thesis = excel_thesis if excel_thesis else local_briefings["portfolio_thesis"]
+
         ensure_unique_rationales(cleaned_products, profile)
         return {
             "portfolio_theme": profile["portfolio_theme"],
-            "executive_summary": scrub_forbidden_phrases(local_briefings["executive_summary"]),
-            "portfolio_thesis": scrub_forbidden_phrases(local_briefings["portfolio_thesis"]),
+            "executive_summary": scrub_forbidden_phrases(exec_summary),
+            "portfolio_thesis": scrub_forbidden_phrases(thesis),
             "market_commentary": scrub_forbidden_phrases(local_briefings["market_commentary"]),
             "allocation": allocations,
             "products": cleaned_products

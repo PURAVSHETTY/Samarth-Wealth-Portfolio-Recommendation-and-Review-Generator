@@ -1329,12 +1329,26 @@ def generate_review_pdf(review_context, output_path):
     _CW = [165, 75, 75, 65, 60, 290]
 
     # Recommendation Generator Logic
+    def _trim_reco(text, max_sentences=2, max_chars=160):
+        """Trim advisor notes to at most 2 sentences and 160 characters."""
+        if not text:
+            return text
+        import re as _re
+        # Split on sentence boundaries
+        sentences = _re.split(r'(?<=[.!?])\s+', text.strip())
+        trimmed = " ".join(sentences[:max_sentences]).strip()
+        if len(trimmed) > max_chars:
+            trimmed = trimmed[:max_chars].rsplit(" ", 1)[0].rstrip(".,;")
+            if not trimmed.endswith("."):
+                trimmed += "."
+        return trimmed
+
     def _get_reco(h):
         notes = h.get("advisor_notes", "").strip()
         
         # 1. Excel recommendation takes absolute highest priority and must match verbatim (Rule 2)
         if notes:
-            return notes
+            return _trim_reco(notes)
 
         # 2. Only if the Excel cell is blank, generate a new professional recommendation (Rule 3)
         xirr = h.get("xirr_pct", 0.0)
@@ -1557,10 +1571,11 @@ def generate_review_pdf(review_context, output_path):
         "P5CardText", 
         parent=styles["BodySmall"], 
         fontName=FONT_UNICODE_SANS,
-        fontSize=8.0, 
-        leading=11.0, 
+        fontSize=9.5, 
+        leading=13.5, 
         textColor=DARK_GREY
     )
+
     p5_card_text_right_style = ParagraphStyle(
         "P5CardTextRight", 
         parent=styles["BodySmall"], 
@@ -1784,9 +1799,10 @@ def generate_review_pdf(review_context, output_path):
         ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#E2E8F0")),
         ("LEFTPADDING", (0, 0), (-1, -1), 6),
         ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 8),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
     ]))
+
 
     bench_flowables = [
         bench_t,
@@ -1970,12 +1986,13 @@ def generate_review_pdf(review_context, output_path):
     circular_f1 = None
     if founder1_img_path:
         circular_f1 = os.path.join(os.path.dirname(founder1_img_path) if os.path.dirname(founder1_img_path) else ".", "circular_f1.png")
-        make_circular_img(founder1_img_path, circular_f1, size=150)
+        make_circular_img(founder1_img_path, circular_f1, size=168)
 
     circular_f2 = None
     if founder2_img_path:
         circular_f2 = os.path.join(os.path.dirname(founder2_img_path) if os.path.dirname(founder2_img_path) else ".", "circular_f2.png")
-        make_circular_img(founder2_img_path, circular_f2, size=150)
+        make_circular_img(founder2_img_path, circular_f2, size=168)
+
 
     # Left Card details (Pranjal Wagh)
     wagh_name = "Pranjal Wagh"
@@ -2008,9 +2025,10 @@ def generate_review_pdf(review_context, output_path):
     card_w = (739.89 - 30) / 2 # 354 pt
     
     if circular_f2 and os.path.exists(circular_f2):
-        wagh_p_img = Image(circular_f2, width=72, height=72)
+        wagh_p_img = Image(circular_f2, width=80, height=80)
     else:
-        wagh_p_img = make_image_placeholder(wagh_name, width=72, height=72)
+        wagh_p_img = make_image_placeholder(wagh_name, width=80, height=80)
+
 
     wagh_img_table = Table([[wagh_p_img]], colWidths=[card_w - 24], hAlign='CENTER')
     wagh_img_table.setStyle(TableStyle([
@@ -2069,9 +2087,10 @@ def generate_review_pdf(review_context, output_path):
 
     # Build Right Card Flowable (Abhinandan Honale)
     if circular_f1 and os.path.exists(circular_f1):
-        honale_p_img = Image(circular_f1, width=72, height=72)
+        honale_p_img = Image(circular_f1, width=80, height=80)
     else:
-        honale_p_img = make_image_placeholder(honale_name, width=72, height=72)
+        honale_p_img = make_image_placeholder(honale_name, width=80, height=80)
+
 
     honale_img_table = Table([[honale_p_img]], colWidths=[card_w - 24], hAlign='CENTER')
     honale_img_table.setStyle(TableStyle([
