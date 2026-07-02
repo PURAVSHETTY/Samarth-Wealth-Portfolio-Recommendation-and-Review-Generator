@@ -1900,7 +1900,7 @@ def generate_review_pdf(review_context, output_path):
     story.append(row3_table)
     story.append(Spacer(1, 10))
 
-    # Row 4: Key Performance Drivers & Portfolio Insights
+    # Row 4: Key Performance Drivers
     drivers_icon = make_icon_card("chart", ["KEY", "PERFORMANCE", "DRIVERS"])
     drivers_bullets = [
         "• <b>Strong Equity Allocation</b>: Higher allocation to Mid Cap and Flexi Cap funds drove strong overall returns.",
@@ -1909,7 +1909,7 @@ def generate_review_pdf(review_context, output_path):
         "• <b>Long-term Discipline</b>: SIP contributions and long-term holding strategy enhanced wealth compounding."
     ]
     drivers_html = "<br/>".join(drivers_bullets)
-    drivers_t = Table([[drivers_icon, Paragraph(drivers_html, p5_body_text_style)]], colWidths=[75, 275])
+    drivers_t = Table([[drivers_icon, Paragraph(drivers_html, p5_body_text_style)]], colWidths=[75, 665])
     drivers_t.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
@@ -1917,35 +1917,7 @@ def generate_review_pdf(review_context, output_path):
         ("TOPPADDING", (0, 0), (-1, -1), 0),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
     ]))
-
-    insights_icon = make_icon_card("lightbulb", ["PORTFOLIO", "INSIGHTS"])
-    insights_bullets = []
-    for h in holdings:
-        note = h.get("advisor_notes", "").strip()
-        if note and note.lower() not in ["continue to hold.", "fund is doing well. continue to hold."]:
-            short_name = shorten_scheme_name(h["product_name"])
-            insights_bullets.append(f"• <b>{short_name}</b>: {note}")
-    if not insights_bullets:
-        insights_bullets.append("• No specific portfolio action points identified in the review period.")
-    insights_html = "<br/>".join(insights_bullets)
-    insights_t = Table([[insights_icon, Paragraph(insights_html, p5_body_text_style)]], colWidths=[75, 275])
-    insights_t.setStyle(TableStyle([
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 0),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-        ("TOPPADDING", (0, 0), (-1, -1), 0),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-    ]))
-
-    row4_table = Table([[drivers_t, insights_t]], colWidths=[370, 370])
-    row4_table.setStyle(TableStyle([
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 0),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-        ("TOPPADDING", (0, 0), (-1, -1), 0),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-    ]))
-    story.append(row4_table)
+    story.append(drivers_t)
     # ── Page: Our Founders (added before Disclaimer)
     story.append(PageBreak())
     story.append(Spacer(1, 10))
