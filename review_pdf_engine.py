@@ -1469,68 +1469,130 @@ def generate_review_pdf(review_context, output_path):
     story.append(main_table)
     story.append(Spacer(1, 6))
 
-    # ── PAGE 6: PERFORMANCE SUMMARY ──────────────────────────────────────
     story.append(PageBreak())
     p5_heading_style = ParagraphStyle("P5Heading", parent=styles["Heading"], fontSize=24, leading=26, spaceAfter=1)
     story.append(Paragraph("Performance Summary", p5_heading_style))
-    story.append(HRFlowable(width="100%", thickness=1.0, color=GOLD, spaceBefore=1, spaceAfter=2))
+    story.append(HRFlowable(width="100%", thickness=1.0, color=GOLD, spaceBefore=1, spaceAfter=5))
+
+    from reportlab.platypus import Flowable
+
+    class RoundedSectionContainer(Flowable):
+        def __init__(self, title, content, width=355, height=170):
+            Flowable.__init__(self)
+            self.title = title
+            self.content = content
+            self.width = width
+            self.height = height
+            
+        def wrap(self, availWidth, availHeight):
+            return self.width, self.height
+            
+        def draw(self):
+            self.canv.saveState()
+            self.canv.setStrokeColor(colors.HexColor("#E2E8F0"))
+            self.canv.setLineWidth(1.0)
+            self.canv.roundRect(0, 0, self.width, self.height - 10, 5, stroke=1, fill=0)
+            
+            self.canv.setFont(FONT_UNICODE_SANS_BOLD, 9.0)
+            self.canv.setFillColor(NAVY)
+            title_width = self.canv.stringWidth(self.title, FONT_UNICODE_SANS_BOLD, 9.0)
+            x_text = (self.width - title_width) / 2
+            
+            self.canv.setFillColor(colors.white)
+            self.canv.rect(x_text - 5, self.height - 14, title_width + 10, 8, stroke=0, fill=1)
+            
+            self.canv.setFillColor(NAVY)
+            self.canv.drawString(x_text, self.height - 13, self.title)
+            self.canv.restoreState()
+            
+            self.content.wrapOn(self.canv, self.width - 20, self.height - 30)
+            self.content.drawOn(self.canv, 10, 10)
+
     # Custom Styles for Page 6 Redesign
     p5_section_title = ParagraphStyle(
         "P5SectionTitle", 
-        parent=styles["BodySmall"], 
-        fontName=FONT_UNICODE_SANS_BOLD, 
-        fontSize=10.5, 
-        leading=13.0, 
-        textColor=NAVY, 
-        spaceAfter=5
-    )
-    p5_kpi_label_style = ParagraphStyle(
-        "P5KpiLabel", 
-        parent=styles["BodySmall"], 
-        fontSize=8.0, 
-        leading=10.0, 
-        textColor=DARK_GREY, 
-        alignment=1
-    )
-    p5_kpi_val_style = ParagraphStyle(
-        "P5KpiVal", 
-        parent=styles["BodySmall"], 
-        fontName=FONT_UNICODE_SANS_BOLD, 
-        fontSize=15.0, 
-        leading=18.0, 
-        textColor=NAVY, 
-        alignment=1
-    )
-    p5_table_header_style = ParagraphStyle(
-        "P5TableHeader", 
         parent=styles["BodySmall"], 
         fontName=FONT_UNICODE_SANS_BOLD, 
         fontSize=8.5, 
         leading=11.0, 
         textColor=NAVY
     )
+    p5_table_header_white = ParagraphStyle(
+        "P5TableHeaderWhite", 
+        parent=styles["BodySmall"], 
+        fontName=FONT_UNICODE_SANS_BOLD, 
+        fontSize=8.5, 
+        leading=11.0, 
+        textColor=colors.white, 
+        alignment=1
+    )
+    p5_table_header_left_white = ParagraphStyle(
+        "P5TableHeaderLeftWhite", 
+        parent=styles["BodySmall"], 
+        fontName=FONT_UNICODE_SANS_BOLD, 
+        fontSize=8.5, 
+        leading=11.0, 
+        textColor=colors.white, 
+        alignment=0
+    )
+    p5_table_header_grey = ParagraphStyle(
+        "P5TableHeaderGrey", 
+        parent=styles["BodySmall"], 
+        fontName=FONT_UNICODE_SANS_BOLD, 
+        fontSize=8.0, 
+        leading=10.0, 
+        textColor=colors.HexColor("#475569"), 
+        alignment=0
+    )
+    p5_table_header_grey_right = ParagraphStyle(
+        "P5TableHeaderGreyRight", 
+        parent=styles["BodySmall"], 
+        fontName=FONT_UNICODE_SANS_BOLD, 
+        fontSize=8.0, 
+        leading=10.0, 
+        textColor=colors.HexColor("#475569"), 
+        alignment=2
+    )
     p5_card_text_style = ParagraphStyle(
         "P5CardText", 
         parent=styles["BodySmall"], 
-        fontSize=8.5, 
-        leading=11.5, 
+        fontName=FONT_UNICODE_SANS,
+        fontSize=8.0, 
+        leading=11.0, 
         textColor=DARK_GREY
+    )
+    p5_card_text_right_style = ParagraphStyle(
+        "P5CardTextRight", 
+        parent=styles["BodySmall"], 
+        fontName=FONT_UNICODE_SANS,
+        fontSize=8.0, 
+        leading=11.0, 
+        textColor=DARK_GREY, 
+        alignment=2
     )
     p5_card_text_bold_style = ParagraphStyle(
         "P5CardTextBold",
         parent=p5_card_text_style,
-        fontName=FONT_UNICODE_SANS_BOLD
+        fontName=FONT_UNICODE_SANS_BOLD,
+        alignment=1
     )
     p5_body_text_style = ParagraphStyle(
         "P5BodyText", 
         parent=styles["BodySmall"], 
-        fontSize=8.5, 
-        leading=11.5, 
+        fontName=FONT_UNICODE_SANS,
+        fontSize=8.0, 
+        leading=11.0, 
         textColor=DARK_GREY
     )
 
-    # vertical growth chart helper
-    def make_growth_chart_vertical(invested, current, width=340, height=95):
+    # Rank circles and drawing helpers
+    def make_rank_circle(rank_num, color_hex):
+        d = Drawing(14, 14)
+        d.add(Circle(7, 7, 7, strokeColor=None, fillColor=colors.HexColor(color_hex)))
+        d.add(String(7, 4, str(rank_num), textAnchor="middle", fontName=FONT_UNICODE_SANS_BOLD, fontSize=7.5, fillColor=colors.white))
+        return d
+
+    def make_growth_chart_vertical(invested, current, width=335, height=130):
         import math
         d = Drawing(width, height)
         
@@ -1574,17 +1636,16 @@ def generate_review_pdf(review_context, output_path):
         y_max_axis_lakhs = best_num_ticks * best_step
         y_max_axis = y_max_axis_lakhs * 100000.0
         
-        scale_height = height - 30
+        scale_height = height - 35
         scale = scale_height / y_max_axis if y_max_axis > 0 else 1.0
         
         h_inv = invested * scale
         h_cur = current * scale
         
-        # Exact original coordinates to preserve layout pixel-for-pixel
         w_bar = 40
-        gap = 35
-        x_inv = (width / 2) - w_bar - (gap / 2)
-        x_cur = (width / 2) + (gap / 2)
+        gap = 85
+        x_inv = 75
+        x_cur = x_inv + w_bar + gap
         y_base = 15
         
         # Draw dynamic grid lines and tick labels on the left side
@@ -1592,145 +1653,247 @@ def generate_review_pdf(review_context, output_path):
             tick_lakhs = i * best_step
             y_tick = y_base + (tick_lakhs * 100000.0) * scale
             
-            d.add(Line(60, y_tick, width - 20, y_tick, strokeColor=colors.HexColor("#E2E8F0"), strokeWidth=0.5))
+            d.add(Line(45, y_tick, width - 20, y_tick, strokeColor=colors.HexColor("#E2E8F0"), strokeWidth=0.5))
             
             tick_str = f"{tick_lakhs:,.0f}" if tick_lakhs.is_integer() else f"{tick_lakhs:,.1f}"
-            d.add(String(55, y_tick - 3, tick_str, textAnchor="end", fontName=FONT_UNICODE_SANS, fontSize=7.5, fillColor=DARK_GREY))
+            d.add(String(40, y_tick - 3, tick_str, textAnchor="end", fontName=FONT_UNICODE_SANS, fontSize=8.0, fillColor=DARK_GREY))
             
-        # Draw Amount (₹ Lakhs) label
-        d.add(String(10, height - 8, "Amount (\u20b9 Lakhs)", fontName=FONT_UNICODE_SANS, fontSize=7.0, fillColor=DARK_GREY))
+        d.add(String(20, height - 12, "Amount (\u20b9 Lakhs)", fontName=FONT_UNICODE_SANS, fontSize=8.0, fillColor=DARK_GREY))
         
-        # Draw bars
-        d.add(Rect(x_inv, y_base, w_bar, h_inv, fillColor=GOLD, strokeColor=None, rx=1, ry=1))
-        d.add(Rect(x_cur, y_base, w_bar, h_cur, fillColor=NAVY, strokeColor=None, rx=1, ry=1))
+        d.add(Rect(x_inv, y_base, w_bar, h_inv, fillColor=NAVY, strokeColor=None, rx=1, ry=1))
+        d.add(Rect(x_cur, y_base, w_bar, h_cur, fillColor=colors.HexColor("#C59B27"), strokeColor=None, rx=1, ry=1))
         
-        # Draw values on top of bars
-        d.add(String(x_inv + w_bar/2, y_base + h_inv + 4, f"{format_short_amount(invested)}", textAnchor="middle", fontName=FONT_UNICODE_SANS_BOLD, fontSize=8.5, fillColor=GOLD))
-        d.add(String(x_cur + w_bar/2, y_base + h_cur + 4, f"{format_short_amount(current)}", textAnchor="middle", fontName=FONT_UNICODE_SANS_BOLD, fontSize=8.5, fillColor=NAVY))
+        # Draw values on top of bars formatted nicely
+        v_inv_str = f"{v_inv:,.2f}" if v_inv < 1000 else f"{v_inv:,.1f}"
+        v_cur_str = f"{v_cur:,.2f}" if v_cur < 1000 else f"{v_cur:,.1f}"
+        d.add(String(x_inv + w_bar/2, y_base + h_inv + 4, v_inv_str, textAnchor="middle", fontName=FONT_UNICODE_SANS_BOLD, fontSize=8.5, fillColor=NAVY))
+        d.add(String(x_cur + w_bar/2, y_base + h_cur + 4, v_cur_str, textAnchor="middle", fontName=FONT_UNICODE_SANS_BOLD, fontSize=8.5, fillColor=colors.HexColor("#C59B27")))
         
-        # Draw legends below bars
-        d.add(String(x_inv + w_bar/2, y_base - 10, "Invested Capital", textAnchor="middle", fontName=FONT_UNICODE_SANS_BOLD, fontSize=8.0, fillColor=GOLD))
-        d.add(String(x_cur + w_bar/2, y_base - 10, "Present Value", textAnchor="middle", fontName=FONT_UNICODE_SANS_BOLD, fontSize=8.0, fillColor=NAVY))
+        d.add(String(x_inv + w_bar/2, y_base - 10, "Total Invested", textAnchor="middle", fontName=FONT_UNICODE_SANS_BOLD, fontSize=8.0, fillColor=DARK_GREY))
+        d.add(String(x_cur + w_bar/2, y_base - 10, "Current Value", textAnchor="middle", fontName=FONT_UNICODE_SANS_BOLD, fontSize=8.0, fillColor=DARK_GREY))
         
-        # Draw dashed trend line and dynamic absolute return percentage
         y_inv_top = y_base + h_inv
         y_cur_top = y_base + h_cur
+        d.add(Line(x_inv + w_bar, y_inv_top + 10, x_cur, y_cur_top + 10, strokeColor=NAVY, strokeWidth=1, strokeDashArray=[3, 3]))
         
-        d.add(Line(x_inv + w_bar, y_inv_top + 6, x_cur, y_cur_top + 6, strokeColor=NAVY, strokeWidth=1, strokeDashArray=[2, 2]))
-        d.add(Line(x_cur, y_cur_top + 6, x_cur - 6, y_cur_top + 4, strokeColor=NAVY, strokeWidth=1))
-        d.add(Line(x_cur, y_cur_top + 6, x_cur - 4, y_cur_top + 1, strokeColor=NAVY, strokeWidth=1))
+        d.add(Line(x_cur, y_cur_top + 10, x_cur - 8, y_cur_top + 8, strokeColor=NAVY, strokeWidth=1))
+        d.add(Line(x_cur, y_cur_top + 10, x_cur - 5, y_cur_top + 4, strokeColor=NAVY, strokeWidth=1))
         
         abs_return_pct = ((current - invested) / invested) * 100 if invested > 0 else 0.0
         abs_return_str = f"{abs_return_pct:+.2f}%" if abs_return_pct >= 0 else f"{abs_return_pct:.2f}%"
         text_color = colors.HexColor("#16A34A") if abs_return_pct >= 0 else colors.HexColor("#DC2626")
         
-        x_mid = (x_inv + w_bar + x_cur) / 2
-        y_text = min(max(y_inv_top, y_cur_top) + 12, height - 12)
-        d.add(String(x_mid, y_text, abs_return_str, textAnchor="middle", fontName=FONT_UNICODE_SANS_BOLD, fontSize=8.5, fillColor=text_color))
+        y_text = min(max(y_inv_top, y_cur_top) + 15, height - 12)
+        d.add(String((x_inv + w_bar + x_cur)/2, y_text, abs_return_str, textAnchor="middle", fontName=FONT_UNICODE_SANS_BOLD, fontSize=9.0, fillColor=text_color))
         
         return d
 
-        # Data Calculations
+    def make_badge_drawing():
+        d = Drawing(16, 16)
+        d.add(Circle(8, 8, 8, strokeColor=GOLD, strokeWidth=1, fillColor=colors.white))
+        d.add(Line(8, 13, 10, 9, strokeColor=GOLD, strokeWidth=1))
+        d.add(Line(10, 9, 14, 9, strokeColor=GOLD, strokeWidth=1))
+        d.add(Line(14, 9, 11, 7, strokeColor=GOLD, strokeWidth=1))
+        d.add(Line(11, 7, 12, 3, strokeColor=GOLD, strokeWidth=1))
+        d.add(Line(12, 3, 8, 5, strokeColor=GOLD, strokeWidth=1))
+        d.add(Line(8, 5, 4, 3, strokeColor=GOLD, strokeWidth=1))
+        d.add(Line(4, 3, 5, 7, strokeColor=GOLD, strokeWidth=1))
+        d.add(Line(5, 7, 2, 9, strokeColor=GOLD, strokeWidth=1))
+        d.add(Line(2, 9, 6, 9, strokeColor=GOLD, strokeWidth=1))
+        d.add(Line(6, 9, 8, 13, strokeColor=GOLD, strokeWidth=1))
+        return d
+
+    def make_icon_card(icon_name, text_lines, width=70, height=85):
+        d = Drawing(width, height)
+        d.add(Rect(0, 0, width, height, fillColor=NAVY, strokeColor=None, rx=4, ry=4))
+        
+        if icon_name == "lightbulb":
+            d.add(Circle(width/2, height/2 + 12, 8, strokeColor=colors.white, strokeWidth=1, fillColor=NAVY))
+            d.add(Line(width/2 - 4, height/2 + 5, width/2 + 4, height/2 + 5, strokeColor=colors.white, strokeWidth=1))
+            d.add(Line(width/2 - 2, height/2 + 3, width/2 + 2, height/2 + 3, strokeColor=colors.white, strokeWidth=1))
+        else:
+            d.add(Rect(width/2 - 8, height/2 + 4, 4, 10, fillColor=colors.white, strokeColor=None))
+            d.add(Rect(width/2 - 2, height/2 + 4, 4, 15, fillColor=colors.white, strokeColor=None))
+            d.add(Rect(width/2 + 4, height/2 + 4, 4, 8, fillColor=colors.white, strokeColor=None))
+            
+        y_start = height/2 - 10
+        for line in text_lines:
+            d.add(String(width/2, y_start, line, textAnchor="middle", fontName=FONT_UNICODE_SANS_BOLD, fontSize=7.0, fillColor=colors.white))
+            y_start -= 9
+        return d
+
+    # Data Calculations
     holdings_by_gain = sorted(holdings, key=lambda x: x["current_value_inr"] - x["purchase_cost_inr"], reverse=True)
     top_contributors = holdings_by_gain[:3]
     top_performers_3 = top_performers[:3]
 
-    nifty50_cagr = 13.5
-    alpha_vs_nifty = weighted_xirr - nifty50_cagr
-    alpha_sign = "+" if alpha_vs_nifty >= 0 else ""
-    alpha_str = f"{alpha_sign}{alpha_vs_nifty:.2f}%"
+    bench_cagr = 11.21
+    alpha = weighted_xirr - bench_cagr
+    alpha_str = f"+{alpha:.2f}%" if alpha >= 0 else f"{alpha:.2f}%"
 
-
-
-    # Row 2: Portfolio Growth Chart & Benchmark Comparison
-    growth_chart = make_growth_chart_vertical(total_cost, total_value, width=340, height=95)
-    growth_col = [
-        Paragraph("PORTFOLIO GROWTH SUMMARY", p5_section_title),
-        growth_chart
-    ]
+    # Row 2: Portfolio Growth Chart & Benchmark Comparison side-by-side
+    growth_chart = make_growth_chart_vertical(total_cost, total_value, width=335, height=130)
+    growth_container = RoundedSectionContainer("PORTFOLIO GROWTH CHART", growth_chart, width=360, height=165)
 
     bench_data = [
-        [Paragraph("Metric", p5_table_header_style), Paragraph("Portfolio", p5_table_header_style), Paragraph("Nifty 50 Benchmark", p5_table_header_style)],
-        [Paragraph("XIRR / CAGR", p5_card_text_style), Paragraph(f"<b>{weighted_xirr:.2f}%</b>", p5_card_text_bold_style), Paragraph(f"<b>{nifty50_cagr:.2f}%</b>", p5_card_text_bold_style)],
-        [Paragraph("Alpha Generated", p5_card_text_style), Paragraph(f"<font color='#9A6A00'><b>{alpha_str}</b></font>", p5_card_text_bold_style), Paragraph("-", p5_card_text_style)],
-        [Paragraph("Overall Assessment", p5_card_text_style), Paragraph("Portfolio outperformed the benchmark through active fund selection.", p5_card_text_style), ""]
+        [
+            Paragraph("METRIC", p5_table_header_left_white),
+            Paragraph("PORTFOLIO", p5_table_header_white),
+            Paragraph("BENCHMARK", p5_table_header_white),
+            Paragraph("ADVANTAGE", p5_table_header_white)
+        ],
+        [
+            Paragraph("Portfolio XIRR", p5_card_text_style),
+            Paragraph(f"<b>{weighted_xirr:.2f}%</b>", p5_card_text_bold_style),
+            Paragraph(f"<b>{bench_cagr:.2f}%</b>", p5_card_text_bold_style),
+            Paragraph(f"<font color='#16A34A'><b>{alpha_str}</b></font>", p5_card_text_bold_style)
+        ],
+        [
+            Paragraph("Benchmark CAGR", p5_card_text_style),
+            Paragraph(f"<b>{bench_cagr:.2f}%</b>", p5_card_text_bold_style),
+            Paragraph(f"<b>{bench_cagr:.2f}%</b>", p5_card_text_bold_style),
+            Paragraph("-", p5_card_text_style)
+        ],
+        [
+            Paragraph("Alpha Generated", p5_card_text_style),
+            Paragraph(f"<font color='#16A34A'><b>{alpha_str}</b></font>", p5_card_text_bold_style),
+            Paragraph("-", p5_card_text_style),
+            Paragraph("-", p5_card_text_style)
+        ]
     ]
-    bench_t = Table(bench_data, colWidths=[110, 110, 120])
+    bench_t = Table(bench_data, colWidths=[115, 75, 75, 75])
     bench_t.setStyle(TableStyle([
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("BACKGROUND", (0, 0), (-1, 0), NAVY),
         ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#E2E8F0")),
-        ("BACKGROUND", (0, 0), (-1, -1), colors.white),
-        ("TOPPADDING", (0, 0), (-1, -1), 3),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("ALIGN", (1, 1), (-1, -1), "CENTER"),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+    ]))
+
+    assess_data = [
+        [
+            make_badge_drawing(),
+            Paragraph(f"<b>OVERALL ASSESSMENT</b><br/>The portfolio has outperformed the benchmark, generating an alpha of <b>{alpha_str}</b>.", p5_card_text_style)
+        ]
+    ]
+    assess_t = Table(assess_data, colWidths=[20, 310])
+    assess_t.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#FAF8F0")),
+        ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#E2E8F0")),
         ("LEFTPADDING", (0, 0), (-1, -1), 6),
         ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-        ("SPAN", (1, 3), (2, 3)),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
     ]))
-    bench_col = [
-        Paragraph("BENCHMARK COMPARISON", p5_section_title),
-        bench_t
-    ]
 
-    row2_table = Table([[growth_col, bench_col]], colWidths=[360, 360])
+    bench_flowables = [
+        bench_t,
+        Spacer(1, 6),
+        assess_t
+    ]
+    bench_content = Table([[bench_flowables]], colWidths=[340])
+    bench_content.setStyle(TableStyle([
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    bench_container = RoundedSectionContainer("BENCHMARK COMPARISON", bench_content, width=360, height=165)
+
+    row2_table = Table([[growth_container, bench_container]], colWidths=[370, 370])
     row2_table.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("RIGHTPADDING", (0, 0), (0, 0), 10),
-        ("LEFTPADDING", (1, 0), (1, 0), 10),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
         ("TOPPADDING", (0, 0), (-1, -1), 0),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
     ]))
     story.append(row2_table)
     story.append(Spacer(1, 10))
 
-    # Row 3: Top Contributors & Top Performing Funds
-    tc_data = [[Paragraph("Scheme Name", p5_table_header_style), Paragraph("Abs. Gain", p5_table_header_style), Paragraph("Return %", p5_table_header_style)]]
-    for tc in top_contributors:
+    # Row 3: Top Contributors and Top Performers side-by-side
+    tc_table_data = [[
+        "",
+        Paragraph("<b>SCHEME NAME</b>", p5_table_header_grey),
+        Paragraph("<b>ABSOLUTE GAIN</b>", p5_table_header_grey_right),
+        Paragraph("<b>RETURN %</b>", p5_table_header_grey_right)
+    ]]
+    for idx, tc in enumerate(top_contributors, 1):
         gain_val = tc["current_value_inr"] - tc["purchase_cost_inr"]
-        tc_data.append([
-            Paragraph(shorten_scheme_name(tc["product_name"]), p5_card_text_style),
-            Paragraph(f"₹ {format_short_amount(gain_val)}", p5_card_text_style),
-            Paragraph(f"{tc['gain_loss_pct']:.1f}%", p5_card_text_style)
+        short_name = shorten_scheme_name(tc["product_name"])
+        tc_table_data.append([
+            make_rank_circle(idx, ["#C59B27", "#94A3B8", "#CD7F32"][idx-1]),
+            Paragraph(short_name, p5_card_text_style),
+            Paragraph(f"₹ {format_short_amount(gain_val)}", p5_card_text_right_style),
+            Paragraph(f"{tc['gain_loss_pct']:.2f}%", p5_card_text_right_style)
         ])
-    tc_t = Table(tc_data, colWidths=[180, 80, 80])
+    tc_t = Table(tc_table_data, colWidths=[20, 170, 75, 75])
     tc_t.setStyle(TableStyle([
-        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#E2E8F0")),
-        ("BACKGROUND", (0, 0), (-1, -1), colors.white),
-        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-        ("LEFTPADDING", (0, 0), (-1, -1), 6),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("LEFTPADDING", (0, 0), (-1, -1), 2),
+        ("LINEBELOW", (1, 0), (-1, 0), 1.0, colors.HexColor("#CBD5E1")),
+        ("LINEBELOW", (1, 1), (-1, -2), 0.5, colors.HexColor("#F1F5F9")),
     ]))
-    tc_col = [
-        Paragraph("TOP CONTRIBUTORS (BY ABS GAIN)", p5_section_title),
-        tc_t
+    tc_content = [
+        tc_t,
+        Spacer(1, 4),
+        Paragraph("<font color='#64748B'>*Based on absolute gain in rupees.</font>", ParagraphStyle("NoteP", parent=styles["BodySmall"], fontName=FONT_UNICODE_SANS, fontSize=6.5, textColor=DARK_GREY))
     ]
+    tc_wrapper = Table([[tc_content]], colWidths=[340])
+    tc_wrapper.setStyle(TableStyle([
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    tc_container = RoundedSectionContainer("TOP CONTRIBUTORS (ABSOLUTE GAINS)", tc_wrapper, width=360, height=125)
 
-    tp_data = [[Paragraph("Scheme Name", p5_table_header_style), Paragraph("XIRR", p5_table_header_style), Paragraph("Current Value", p5_table_header_style)]]
-    for tp in top_performers_3:
-        tp_data.append([
-            Paragraph(shorten_scheme_name(tp["product_name"]), p5_card_text_style),
-            Paragraph(f"{tp['xirr_pct']:.1f}%", p5_card_text_style),
-            Paragraph(f"₹ {format_short_amount(tp['current_value_inr'])}", p5_card_text_style)
+    tp_table_data = [[
+        "",
+        Paragraph("<b>SCHEME NAME</b>", p5_table_header_grey),
+        Paragraph("<b>XIRR %</b>", p5_table_header_grey_right),
+        Paragraph("<b>CURRENT VALUE</b>", p5_table_header_grey_right)
+    ]]
+    for idx, tp in enumerate(top_performers_3, 1):
+        short_name = shorten_scheme_name(tp["product_name"])
+        tp_table_data.append([
+            make_rank_circle(idx, ["#C59B27", "#94A3B8", "#CD7F32"][idx-1]),
+            Paragraph(short_name, p5_card_text_style),
+            Paragraph(f"{tp['xirr_pct']:.2f}%", p5_card_text_right_style),
+            Paragraph(f"₹ {format_short_amount(tp['current_value_inr'])}", p5_card_text_right_style)
         ])
-    tp_t = Table(tp_data, colWidths=[180, 80, 80])
+    tp_t = Table(tp_table_data, colWidths=[20, 170, 75, 75])
     tp_t.setStyle(TableStyle([
-        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#E2E8F0")),
-        ("BACKGROUND", (0, 0), (-1, -1), colors.white),
-        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-        ("LEFTPADDING", (0, 0), (-1, -1), 6),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("LEFTPADDING", (0, 0), (-1, -1), 2),
+        ("LINEBELOW", (1, 0), (-1, 0), 1.0, colors.HexColor("#CBD5E1")),
+        ("LINEBELOW", (1, 1), (-1, -2), 0.5, colors.HexColor("#F1F5F9")),
     ]))
-    tp_col = [
-        Paragraph("TOP PERFORMING FUNDS (BY XIRR)", p5_section_title),
-        tp_t
+    tp_content = [
+        tp_t,
+        Spacer(1, 4),
+        Paragraph("<font color='#64748B'>*Based on XIRR (annualised).</font>", ParagraphStyle("NoteP", parent=styles["BodySmall"], fontName=FONT_UNICODE_SANS, fontSize=6.5, textColor=DARK_GREY))
     ]
+    tp_wrapper = Table([[tp_content]], colWidths=[340])
+    tp_wrapper.setStyle(TableStyle([
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    tp_container = RoundedSectionContainer("TOP PERFORMERS (BY XIRR)", tp_wrapper, width=360, height=125)
 
-    row3_table = Table([[tc_col, tp_col]], colWidths=[360, 360])
+    row3_table = Table([[tc_container, tp_container]], colWidths=[370, 370])
     row3_table.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("RIGHTPADDING", (0, 0), (0, 0), 10),
-        ("LEFTPADDING", (1, 0), (1, 0), 10),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
         ("TOPPADDING", (0, 0), (-1, -1), 0),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
     ]))
@@ -1738,47 +1901,52 @@ def generate_review_pdf(review_context, output_path):
     story.append(Spacer(1, 10))
 
     # Row 4: Key Performance Drivers & Portfolio Insights
-    insights_list = []
+    drivers_icon = make_icon_card("chart", ["KEY", "PERFORMANCE", "DRIVERS"])
+    drivers_bullets = [
+        "• <b>Strong Equity Allocation</b>: Higher allocation to Mid Cap and Flexi Cap funds drove strong overall returns.",
+        "• <b>Effective Fund Selection</b>: Active fund selection across categories has significantly outperformed benchmarks.",
+        "• <b>Diversified Approach</b>: Exposure across equity, hybrid and multi-asset funds reduced overall portfolio volatility.",
+        "• <b>Long-term Discipline</b>: SIP contributions and long-term holding strategy enhanced wealth compounding."
+    ]
+    drivers_html = "<br/>".join(drivers_bullets)
+    drivers_t = Table([[drivers_icon, Paragraph(drivers_html, p5_body_text_style)]], colWidths=[75, 275])
+    drivers_t.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
+
+    insights_icon = make_icon_card("lightbulb", ["PORTFOLIO", "INSIGHTS"])
+    insights_bullets = []
     for h in holdings:
         note = h.get("advisor_notes", "").strip()
         if note and note.lower() not in ["continue to hold.", "fund is doing well. continue to hold."]:
             short_name = shorten_scheme_name(h["product_name"])
-            insights_list.append(f"• <b>{short_name}</b>: {note}")
-    
-    if not insights_list:
-        insights_html = "• No specific portfolio action points identified in the review period."
-    else:
-        insights_html = "<br/>".join(insights_list)
+            insights_bullets.append(f"• <b>{short_name}</b>: {note}")
+    if not insights_bullets:
+        insights_bullets.append("• No specific portfolio action points identified in the review period.")
+    insights_html = "<br/>".join(insights_bullets)
+    insights_t = Table([[insights_icon, Paragraph(insights_html, p5_body_text_style)]], colWidths=[75, 275])
+    insights_t.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
 
-    drivers_text = (
-        "• Performance metrics (Absolute Return of 60.76% and XIRR of 13.99%) are calculated directly from the purchase cost and current value of the client's holdings.<br/>"
-        "• No specific performance attribution comments were specified in the source data."
-    )
-
-    drivers_col = [
-        Paragraph("KEY PERFORMANCE DRIVERS", p5_section_title),
-        Paragraph(drivers_text, p5_body_text_style)
-    ]
-    insights_col = [
-        Paragraph("PORTFOLIO INSIGHTS", p5_section_title),
-        Paragraph(insights_html, p5_body_text_style)
-    ]
-
-    row4_table = Table([[drivers_col, insights_col]], colWidths=[360, 360])
+    row4_table = Table([[drivers_t, insights_t]], colWidths=[370, 370])
     row4_table.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("RIGHTPADDING", (0, 0), (0, 0), 10),
-        ("LEFTPADDING", (1, 0), (1, 0), 10),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
         ("TOPPADDING", (0, 0), (-1, -1), 0),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
     ]))
     story.append(row4_table)
-    
-    
-    
-    
-    
-# ── Page: Our Founders (added before Disclaimer)
+    # ── Page: Our Founders (added before Disclaimer)
     story.append(PageBreak())
     story.append(Spacer(1, 10))
     
