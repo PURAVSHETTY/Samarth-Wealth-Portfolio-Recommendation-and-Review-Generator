@@ -222,21 +222,21 @@ def upload_file():
 
 @app.route("/generate-proposal", methods=["POST"])
 def generate_proposal_route():
-    print(f"[MEMORY PROFILE] 1. Request received: {get_memory_usage():.2f} MB")
-    print("[DEBUG] Request received.")
-    print("\n[DEBUG] ==================================================")
-    print("[DEBUG] Flask API: Received request on /generate-proposal")
-    print("[DEBUG] ==================================================")
-    
-    data = request.json
-    if not data:
-        print("[DEBUG ERROR] Request payload is missing or empty JSON.")
-        return jsonify({"error": "Missing JSON request payload"}), 400
-        
-    proposal_data = data.get("proposal_data")
-    filepath = data.get("filepath")
-    
     try:
+        print(f"[MEMORY PROFILE] 1. Request received: {get_memory_usage():.2f} MB")
+        print("[DEBUG] Request received.")
+        print("\n[DEBUG] ==================================================")
+        print("[DEBUG] Flask API: Received request on /generate-proposal")
+        print("[DEBUG] ==================================================")
+        
+        data = request.json
+        if not data:
+            print("[DEBUG ERROR] Request payload is missing or empty JSON.")
+            return jsonify({"error": "Missing JSON request payload"}), 400
+            
+        proposal_data = data.get("proposal_data")
+        filepath = data.get("filepath")
+        
         workflow = request.headers.get("X-Workflow", "recommendation")
         
         # Load from sent data or fallback to parsing the file
@@ -351,6 +351,7 @@ def generate_proposal_route():
         print("[DEBUG] proposal_engine.py started.")
         print(f"[MEMORY PROFILE] 7. Before PDF generation: {get_memory_usage():.2f} MB")
         print(f"[DEBUG] PDF generation started. Saving file to path: {pdf_path}")
+        
         generate_pdf_from_data(merged_data, output_path=pdf_path)
         print(f"[MEMORY PROFILE] 9. After PDF generation completes: {get_memory_usage():.2f} MB")
         print(f"[DEBUG] PDF generation completed. Output file: {pdf_filename}")
@@ -371,19 +372,14 @@ def generate_proposal_route():
             "status": "success",
             "pdf_url": f"/api/download_pdf?file={pdf_filename}"
         })
-    except ValueError as ve:
-        print(f"[DEBUG ERROR] Validation failed: {str(ve)}")
-        print("[DEBUG] ==================================================\n")
-        print(f"[MEMORY PROFILE] 10. Before returning the response (error): {get_memory_usage():.2f} MB")
-        return jsonify({"error": str(ve)}), 400
     except Exception as e:
-        print(f"[DEBUG ERROR] Exception occurred during proposal generation: {str(e)}")
+        import traceback
         traceback.print_exc()
-        print(f"[TRACEBACK]\n{traceback.format_exc()}")
- 
-        print("[DEBUG] ==================================================\n")
-        print(f"[MEMORY PROFILE] 10. Before returning the response (exception): {get_memory_usage():.2f} MB")
-        return jsonify({"error": f"Failed to generate proposal PDF: {str(e)}"}), 500
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }), 500
 
 @app.route("/api/download_pdf", methods=["GET"])
 def download_pdf():
