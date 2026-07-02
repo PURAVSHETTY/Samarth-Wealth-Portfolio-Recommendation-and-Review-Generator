@@ -1746,6 +1746,54 @@ def _calculate_allocations(cleaned_products, corpus, profile=None):
         
     return allocations, corpus
 
+_SELECTED_GEMINI_MODEL = None
+
+def get_supported_gemini_model(api_key):
+    global _SELECTED_GEMINI_MODEL
+    if _SELECTED_GEMINI_MODEL:
+        return _SELECTED_GEMINI_MODEL
+    
+    # Try gemini-2.5-flash as default stable version
+    default_model = "gemini-2.5-flash"
+    try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
+        response = requests.get(url, timeout=10)
+        if response.status_code == 200:
+            models_data = response.json().get("models", [])
+            supported_models = []
+            for m in models_data:
+                name = m.get("name", "")
+                methods = m.get("supportedGenerationMethods", [])
+                if "generateContent" in methods and "models/gemini" in name:
+                    model_id = name.replace("models/", "")
+                    supported_models.append(model_id)
+            
+            # Select the best flash model
+            clean_flash_models = [
+                m for m in supported_models 
+                if "flash" in m and not any(x in m for x in ["preview", "tts", "image", "lite", "robotics"])
+            ]
+            if clean_flash_models:
+                # Prioritize stable releases
+                for m in ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]:
+                    if m in clean_flash_models:
+                        _SELECTED_GEMINI_MODEL = m
+                        return m
+                _SELECTED_GEMINI_MODEL = clean_flash_models[0]
+                return _SELECTED_GEMINI_MODEL
+            
+            flash_models = [m for m in supported_models if "flash" in m]
+            if flash_models:
+                _SELECTED_GEMINI_MODEL = flash_models[0]
+                return _SELECTED_GEMINI_MODEL
+            
+            if supported_models:
+                _SELECTED_GEMINI_MODEL = supported_models[0]
+                return _SELECTED_GEMINI_MODEL
+    except Exception as e:
+        print(f"[AI Engine REST] Failed to dynamically list models: {e}")
+    return default_model
+
 def call_llm_api(prompt, api_key, temperature=0.95):
     """
     Unified REST API client for Gemini and OpenAI to bypass library installation issues.
@@ -1831,8 +1879,11 @@ def call_llm_api(prompt, api_key, temperature=0.95):
             else:
                 masked_key = "..."
         
+        # Dynamically determine the best supported model name
+        model_name = get_supported_gemini_model(api_key)
+        
         # Define the actual endpoint URL, headers, and payload for Gemini REST API
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
         headers = {
             "Content-Type": "application/json"
         }
@@ -1850,11 +1901,11 @@ def call_llm_api(prompt, api_key, temperature=0.95):
             }
         }
         
-        masked_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={masked_key}"
+        masked_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={masked_key}"
         
         print("==================================================")
         print(f"[AI Engine REST] URL constructed: {masked_url}")
-        print(f"[AI Engine REST] Model name: gemini-1.5-flash")
+        print(f"[AI Engine REST] Model name: {model_name}")
         print(f"[AI Engine REST] API Key length: {len(api_key) if api_key else 0}")
         print(f"[AI Engine REST] API Key prefix/suffix: {masked_key}")
         print("FINAL GEMINI REQUEST PAYLOAD:")
@@ -1863,7 +1914,7 @@ def call_llm_api(prompt, api_key, temperature=0.95):
         
         reached_google = False
         try:
-            print(f"[AI Engine REST] Calling Gemini REST API (v1beta/gemini-1.5-flash)...")
+            print(f"[AI Engine REST] Calling Gemini REST API (v1beta/{model_name})...")
             print(f"  - Sending request to Google Generative Language endpoint: {masked_url}")
             
             response = requests.post(url, headers=headers, json=payload, timeout=45)
@@ -1908,7 +1959,7 @@ def call_llm_api(prompt, api_key, temperature=0.95):
                     text_out = parts[0].get("text", "")
                     if text_out:
                         print("Gemini API LIVE SUCCESS")
-                        print("  - Model: gemini-1.5-flash, API Version: v1beta")
+                        print(f"  - Model: {model_name}, API Version: v1beta")
                         print("  - Reason: API successfully returned text content.")
                         return text_out
                         
