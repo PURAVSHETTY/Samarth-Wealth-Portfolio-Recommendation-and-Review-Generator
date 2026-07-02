@@ -59,6 +59,13 @@ def index():
 def health():
     return jsonify({"status": "ok", "message": "AI Portfolio Recommendation Engine API is active."})
 
+@app.route("/api/log", methods=["POST"])
+def client_log():
+    data = request.json or {}
+    print(f"[CLIENT LOG] {data.get('msg')}")
+    return jsonify({"status": "ok"})
+
+
 @app.route("/upload", methods=["POST"])
 def upload_file():
     """Receives Excel file upload, stores it in uploads/, parses messy structures, and returns JSON metadata."""
@@ -165,6 +172,7 @@ def upload_file():
 @app.route("/generate-proposal", methods=["POST"])
 def generate_proposal_route():
     """Reads Excel data or JSON payloads, runs AI allocation engine, creates PDF, and returns download URL."""
+    print("[DEBUG] Request received.")
     print("\n[DEBUG] ==================================================")
     print("[DEBUG] Flask API: Received request on /generate-proposal")
     print("[DEBUG] ==================================================")
@@ -191,6 +199,9 @@ def generate_proposal_route():
                 proposal_data = parse_review_excel(filepath)
             else:
                 proposal_data = parse_messy_excel(filepath)
+            print("[DEBUG] Excel parsed successfully.")
+        else:
+            print("[DEBUG] Excel parsed successfully.")
                 
         if workflow == "review":
             from review_engine import generate_review_narratives
@@ -202,17 +213,21 @@ def generate_proposal_route():
             api_key = request.headers.get("X-Gemini-Key")
             
             print("[DEBUG] Portfolio Review Generation started...")
+            print("[DEBUG] AI generation started.")
             # Generate AI review narratives
             narratives = generate_review_narratives(proposal_data, api_key=api_key)
             proposal_data["ai_narratives"] = narratives
+            print("[DEBUG] AI generation completed.")
             
             # Generate the Review PDF inside uploads/
             pdf_filename = f"Review_{uuid.uuid4().hex[:8]}.pdf"
             pdf_path = os.path.join(UPLOADS_DIR, pdf_filename)
-
+ 
+            print("[DEBUG] proposal_engine.py started.")
             print(f"[DEBUG] Review PDF generation started. Saving file to: {pdf_filename}")
             generate_review_pdf(proposal_data, pdf_path)
             print(f"[DEBUG] Review PDF generation completed. Output file: {pdf_filename}")
+            print("[DEBUG] PDF generated successfully.")
             
             # Clean up source Excel file from uploads/
             try:
@@ -238,9 +253,11 @@ def generate_proposal_route():
             print("[DEBUG] AI API Key detected. Engaging Gemini generative model.")
             
         # Run AI Optimization
+        print("[DEBUG] AI generation started.")
         print("[DEBUG] AI processing started (auto-allocating funds and writing rationales)...")
         ai_portfolio = generate_ai_portfolio(client_data, fund_data, api_key=api_key)
         print("[DEBUG] AI processing completed successfully.")
+        print("[DEBUG] AI generation completed.")
         print("[DEBUG] AI response received. Merging with firm settings and profiles.")
         
         merged_data = {
@@ -276,9 +293,11 @@ def generate_proposal_route():
         pdf_filename = f"Proposal_{uuid.uuid4().hex[:8]}.pdf"
         pdf_path = os.path.join(UPLOADS_DIR, pdf_filename)
         
+        print("[DEBUG] proposal_engine.py started.")
         print(f"[DEBUG] PDF generation started. Saving file to path: {pdf_path}")
         generate_pdf_from_data(merged_data, output_path=pdf_path)
         print(f"[DEBUG] PDF generation completed. Output file: {pdf_filename}")
+        print("[DEBUG] PDF generated successfully.")
         
         # Clean up source Excel file from uploads/
         try:
@@ -314,6 +333,7 @@ def download_pdf():
     filepath = os.path.join(UPLOADS_DIR, filename)
     if os.path.exists(filepath) and os.path.isfile(filepath):
         print(f"[DEBUG] Serving file attachment: {filepath}")
+        print("[DEBUG] send_file() executed.")
         return send_file(
             filepath,
             mimetype="application/pdf",

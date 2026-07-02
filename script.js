@@ -1,4 +1,27 @@
 document.addEventListener("DOMContentLoaded", () => {
+    // Remote Logging Helper
+    const _log = console.log;
+    const _warn = console.warn;
+    const _error = console.error;
+    function sendRemoteLog(type, args) {
+        const msg = `[${type}] ` + Array.from(args).map(x => {
+            try {
+                return typeof x === 'object' ? JSON.stringify(x) : String(x);
+            } catch (e) {
+                return String(x);
+            }
+        }).join(' ');
+        _log(msg);
+        fetch('/api/log', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ msg: msg })
+        }).catch(err => {});
+    }
+    console.log = function() { sendRemoteLog('INFO', arguments); };
+    console.warn = function() { sendRemoteLog('WARN', arguments); };
+    console.error = function() { sendRemoteLog('ERROR', arguments); };
+
     // DOM Elements
     const dropZone = document.getElementById("drop-zone");
     const fileInput = document.getElementById("file-input");
