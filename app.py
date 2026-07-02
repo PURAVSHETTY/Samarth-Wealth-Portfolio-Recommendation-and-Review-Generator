@@ -33,6 +33,55 @@ def safe_print(*args, **kwargs):
         pass
 builtins.print = safe_print
 
+# Also redirect stderr to the log file so tracebacks and raw exceptions are captured, and output to the original console
+import sys
+class _StderrLogger:
+    def write(self, msg):
+        if msg.strip():
+            try:
+                with open("flask_app.log", "a", encoding="utf-8") as f:
+                    f.write(msg if msg.endswith("\n") else msg + "\n")
+            except Exception:
+                pass
+            try:
+                sys.__stderr__.write(msg)
+                sys.__stderr__.flush()
+            except Exception:
+                pass
+    def flush(self):
+        try:
+            sys.__stderr__.flush()
+        except Exception:
+            pass
+sys.stderr = _StderrLogger()
+
+
+def get_memory_usage():
+    try:
+        import os
+        if os.name == 'nt':
+            import subprocess
+            import csv
+            pid = os.getpid()
+            out = subprocess.check_output(['tasklist', '/FI', f'PID eq {pid}', '/FO', 'CSV', '/NH']).decode('utf-8', errors='ignore')
+            reader = csv.reader([out.strip()])
+            row = next(reader)
+            if len(row) >= 5:
+                mem_str = row[4].replace(' K', '').replace(' KB', '').replace(',', '').strip()
+                return float(mem_str) / 1024
+        else:
+            try:
+                with open('/proc/self/status', 'r') as f:
+                    for line in f:
+                        if line.startswith('VmRSS:'):
+                            return float(line.split()[1]) / 1024
+            except Exception:
+                import resource
+                return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
+    except Exception:
+        pass
+    return 0.0
+
 app = Flask(__name__, static_folder="static", template_folder="templates")
 CORS(app)
 
@@ -165,13 +214,15 @@ def upload_file():
     except Exception as e:
         print(f"[DEBUG ERROR] Unexpected processing failure: {str(e)}")
         traceback.print_exc()
+        print(f"[TRACEBACK]\n{traceback.format_exc()}")
+
         if filepath and os.path.exists(filepath):
             os.remove(filepath)
         return jsonify({"error": f"Failed to parse Excel spreadsheet: {str(e)}"}), 500
 
 @app.route("/generate-proposal", methods=["POST"])
 def generate_proposal_route():
-    """Reads Excel data or JSON payloads, runs AI allocation engine, creates PDF, and returns download URL."""
+    print(f"[MEMORY PROFILE] 1. Request received: {get_memory_usage():.2f} MB")
     print("[DEBUG] Request received.")
     print("\n[DEBUG] ==================================================")
     print("[DEBUG] Flask API: Received request on /generate-proposal")
@@ -193,14 +244,18 @@ def generate_proposal_route():
             if not filepath or not os.path.exists(filepath):
                 print(f"[DEBUG ERROR] Referenced Excel file not found: {filepath}")
                 return jsonify({"error": "Referenced Excel file not found. Please upload again."}), 404
+            print(f"[MEMORY PROFILE] 2. Excel loaded: {get_memory_usage():.2f} MB")
             print(f"[DEBUG] Parsing Excel file: {filepath} for workflow: {workflow}")
             if workflow == "review":
                 from review_engine import parse_review_excel
                 proposal_data = parse_review_excel(filepath)
             else:
                 proposal_data = parse_messy_excel(filepath)
+            print(f"[MEMORY PROFILE] 3. Excel parsed: {get_memory_usage():.2f} MB")
             print("[DEBUG] Excel parsed successfully.")
         else:
+            print(f"[MEMORY PROFILE] 2. Excel loaded (pre-parsed): {get_memory_usage():.2f} MB")
+            print(f"[MEMORY PROFILE] 3. Excel parsed (pre-parsed): {get_memory_usage():.2f} MB")
             print("[DEBUG] Excel parsed successfully.")
                 
         if workflow == "review":
@@ -294,8 +349,10 @@ def generate_proposal_route():
         pdf_path = os.path.join(UPLOADS_DIR, pdf_filename)
         
         print("[DEBUG] proposal_engine.py started.")
+        print(f"[MEMORY PROFILE] 7. Before PDF generation: {get_memory_usage():.2f} MB")
         print(f"[DEBUG] PDF generation started. Saving file to path: {pdf_path}")
         generate_pdf_from_data(merged_data, output_path=pdf_path)
+        print(f"[MEMORY PROFILE] 9. After PDF generation completes: {get_memory_usage():.2f} MB")
         print(f"[DEBUG] PDF generation completed. Output file: {pdf_filename}")
         print("[DEBUG] PDF generated successfully.")
         
@@ -309,6 +366,7 @@ def generate_proposal_route():
             
         print("[DEBUG] Flask API: Returning success response with PDF download URL.")
         print("[DEBUG] ==================================================\n")
+        print(f"[MEMORY PROFILE] 10. Before returning the response: {get_memory_usage():.2f} MB")
         return jsonify({
             "status": "success",
             "pdf_url": f"/api/download_pdf?file={pdf_filename}"
@@ -316,11 +374,15 @@ def generate_proposal_route():
     except ValueError as ve:
         print(f"[DEBUG ERROR] Validation failed: {str(ve)}")
         print("[DEBUG] ==================================================\n")
+        print(f"[MEMORY PROFILE] 10. Before returning the response (error): {get_memory_usage():.2f} MB")
         return jsonify({"error": str(ve)}), 400
     except Exception as e:
         print(f"[DEBUG ERROR] Exception occurred during proposal generation: {str(e)}")
         traceback.print_exc()
+        print(f"[TRACEBACK]\n{traceback.format_exc()}")
+ 
         print("[DEBUG] ==================================================\n")
+        print(f"[MEMORY PROFILE] 10. Before returning the response (exception): {get_memory_usage():.2f} MB")
         return jsonify({"error": f"Failed to generate proposal PDF: {str(e)}"}), 500
 
 @app.route("/api/download_pdf", methods=["GET"])
@@ -386,7 +448,9 @@ def get_default_data():
                 })
             except Exception as e:
                 traceback.print_exc()
+                print(f"[TRACEBACK]\n{traceback.format_exc()}")
                 return jsonify({"error": f"Failed to copy default template: {str(e)}"}), 500
+
         else:
             return jsonify({"error": "Default PORTFOLIO_REVIEW_TEMPLATE.xlsx not found in workspace"}), 404
             
@@ -423,7 +487,9 @@ def get_default_data():
             })
         except Exception as e:
             traceback.print_exc()
+            print(f"[TRACEBACK]\n{traceback.format_exc()}")
             return jsonify({"error": f"Failed to copy default template: {str(e)}"}), 500
+
     else:
         return jsonify({"error": "Default CLIENT_TEMPLATE.xlsx not found in workspace"}), 404
 

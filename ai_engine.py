@@ -8,6 +8,32 @@ import requests
 # Track recent response text hashes to detect cached response reuse
 _RECENT_GEMINI_RESPONSES = []
 
+def get_memory_usage():
+    try:
+        import os
+        if os.name == 'nt':
+            import subprocess
+            import csv
+            pid = os.getpid()
+            out = subprocess.check_output(['tasklist', '/FI', f'PID eq {pid}', '/FO', 'CSV', '/NH']).decode('utf-8', errors='ignore')
+            reader = csv.reader([out.strip()])
+            row = next(reader)
+            if len(row) >= 5:
+                mem_str = row[4].replace(' K', '').replace(' KB', '').replace(',', '').strip()
+                return float(mem_str) / 1024
+        else:
+            try:
+                with open('/proc/self/status', 'r') as f:
+                    for line in f:
+                        if line.startswith('VmRSS:'):
+                            return float(line.split()[1]) / 1024
+            except Exception:
+                import resource
+                return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
+    except Exception:
+        pass
+    return 0.0
+
 def simplify_jargon(text):
     """Replaces overly technical financial terms with simple client-friendly words."""
     replacements = {
@@ -1791,6 +1817,8 @@ def get_supported_gemini_model(api_key):
                 _SELECTED_GEMINI_MODEL = supported_models[0]
                 return _SELECTED_GEMINI_MODEL
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         print(f"[AI Engine REST] Failed to dynamically list models: {e}")
     return default_model
 
@@ -1834,6 +1862,8 @@ def call_llm_api(prompt, api_key, temperature=0.95):
                 print(f"[AI Engine ERROR] OpenAI HTTP {status_code} received")
                 response.raise_for_status()
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             print(f"[AI Engine] OpenAI gpt-4o-mini call failed: {e}. Trying gpt-4o...")
             payload["model"] = "gpt-4o"
             try:
@@ -1915,6 +1945,8 @@ def call_llm_api(prompt, api_key, temperature=0.95):
             print("[AI Engine ERROR] Gemini returned an empty response or unexpected structure")
             raise ValueError(f"Unexpected response format from Gemini: {res_json}")
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             print(f"[AI Engine ERROR] Gemini REST call failed: {e}")
             raise e
 
@@ -2038,6 +2070,8 @@ def generate_ai_portfolio(client_data, fund_data, api_key=None):
     selected_temp = round(rd_inst.uniform(1.15, 1.35), 2)
 
     if not api_key:
+        print(f"[MEMORY PROFILE] 4. Gemini prompt created (fallback): {get_memory_usage():.2f} MB")
+        print(f"[MEMORY PROFILE] 5. Gemini response received (fallback): {get_memory_usage():.2f} MB")
         print("Fallback rationale engine used")
         print("  - Temperature used: N/A")
         print(f"  - Style selected: {selected_style}")
@@ -2082,6 +2116,7 @@ def generate_ai_portfolio(client_data, fund_data, api_key=None):
         thesis = excel_thesis if excel_thesis else local_briefings["portfolio_thesis"]
 
         ensure_unique_rationales(cleaned_products, profile)
+        print(f"[MEMORY PROFILE] 6. Proposal JSON built (fallback): {get_memory_usage():.2f} MB")
         return {
             "portfolio_theme": profile["portfolio_theme"],
             "executive_summary": scrub_forbidden_phrases(exec_summary),
@@ -2336,7 +2371,9 @@ def generate_ai_portfolio(client_data, fund_data, api_key=None):
           ]
         }}
         """
+        print(f"[MEMORY PROFILE] 4. Gemini prompt created: {get_memory_usage():.2f} MB")
         text = call_llm_api(prompt, api_key, temperature=selected_temp).strip()
+        print(f"[MEMORY PROFILE] 5. Gemini response received: {get_memory_usage():.2f} MB")
         api_succeeded = True
         
 
@@ -2360,6 +2397,7 @@ def generate_ai_portfolio(client_data, fund_data, api_key=None):
                 
         try:
             result = json.loads(cleaned_text)
+            print(f"[MEMORY PROFILE] 6. Proposal JSON built: {get_memory_usage():.2f} MB")
             parsing_succeeded = True
         except Exception as json_err:
             print(f"AI PARSE FAILURE REASON: JSON decode failure - {str(json_err)}")
@@ -2507,7 +2545,9 @@ def generate_ai_portfolio(client_data, fund_data, api_key=None):
         
     except Exception as e:
         error_detail = str(e)
-        print(f"[AI Engine ERROR] Fallback activated. Detail: {error_detail}")
+        import traceback
+        print(f"[AI Engine ERROR] Fallback activated. Detail: {error_detail}", flush=True)
+        traceback.print_exc()
         
         # Apply local rationales for each product
         for p in cleaned_products:
