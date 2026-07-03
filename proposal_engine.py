@@ -18,7 +18,8 @@ from reportlab.lib.units import mm
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.platypus import (
     SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
-    HRFlowable, PageBreak, KeepTogether, Flowable, Image
+    HRFlowable, PageBreak, KeepTogether, Flowable, Image,
+    PageTemplate, Frame, NextPageTemplate
 )
 from reportlab.graphics.shapes import Drawing, Wedge, Circle, String, Rect, Line
 from reportlab.graphics.charts.piecharts import Pie
@@ -26,6 +27,18 @@ from reportlab.graphics import renderPDF
 from reportlab.pdfgen import canvas as pdfcanvas
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
+
+
+def get_roman_numeral(n):
+    num_map = [
+        (10, 'X'), (9, 'IX'), (5, 'V'), (4, 'IV'), (1, 'I')
+    ]
+    roman = ""
+    for val, char in num_map:
+        while n >= val:
+            roman += char
+            n -= val
+    return roman
 
 
 # Register TrueType fonts to support the Indian Rupee symbol (₹)
@@ -52,16 +65,74 @@ except Exception as e:
     FONT_SERIF_BOLD = "Times-Bold"
     FONT_SERIF_ITALIC = "Times-Italic"
 
+# Register local DejaVu Unicode fonts as a secondary set
+try:
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    pdfmetrics.registerFont(TTFont('DejaVuSans', os.path.join(current_dir, 'DejaVuSans.ttf')))
+    pdfmetrics.registerFont(TTFont('DejaVuSans-Bold', os.path.join(current_dir, 'DejaVuSans-Bold.ttf')))
+    pdfmetrics.registerFont(TTFont('DejaVuSans-Italic', os.path.join(current_dir, 'DejaVuSans-Oblique.ttf')))
+    pdfmetrics.registerFont(TTFont('DejaVuSerif', os.path.join(current_dir, 'DejaVuSerif.ttf')))
+    pdfmetrics.registerFont(TTFont('DejaVuSerif-Bold', os.path.join(current_dir, 'DejaVuSerif-Bold.ttf')))
+    pdfmetrics.registerFont(TTFont('DejaVuSerif-Italic', os.path.join(current_dir, 'DejaVuSerif-Italic.ttf')))
+    FONT_UNICODE_SANS = "DejaVuSans"
+    FONT_UNICODE_SANS_BOLD = "DejaVuSans-Bold"
+    FONT_UNICODE_SANS_ITALIC = "DejaVuSans-Italic"
+    FONT_UNICODE_SERIF = "DejaVuSerif"
+    FONT_UNICODE_SERIF_BOLD = "DejaVuSerif-Bold"
+    FONT_UNICODE_SERIF_ITALIC = "DejaVuSerif-Italic"
+except Exception as e:
+    print(f"[proposal_engine] Unicode font registration failed: {e}. Falling back to original fonts.")
+    FONT_UNICODE_SANS = FONT_SANS
+    FONT_UNICODE_SANS_BOLD = FONT_SANS_BOLD
+    FONT_UNICODE_SANS_ITALIC = FONT_SANS_ITALIC
+    FONT_UNICODE_SERIF = FONT_SERIF
+    FONT_UNICODE_SERIF_BOLD = FONT_SERIF_BOLD
+    FONT_UNICODE_SERIF_ITALIC = FONT_SERIF_ITALIC
+
+# Mappings for bold/italic TrueType fonts to ensure <b> tags render correctly
+from reportlab.lib.fonts import addMapping
+try:
+    addMapping('DejaVuSans', 0, 0, 'DejaVuSans')
+    addMapping('DejaVuSans', 1, 0, 'DejaVuSans-Bold')
+    addMapping('DejaVuSans', 0, 1, 'DejaVuSans-Italic')
+    addMapping('DejaVuSans', 1, 1, 'DejaVuSans-Bold')
+except Exception as e:
+    print(f"[proposal_engine] DejaVuSans mapping failed: {e}")
+
+try:
+    addMapping('DejaVuSerif', 0, 0, 'DejaVuSerif')
+    addMapping('DejaVuSerif', 1, 0, 'DejaVuSerif-Bold')
+    addMapping('DejaVuSerif', 0, 1, 'DejaVuSerif-Italic')
+    addMapping('DejaVuSerif', 1, 1, 'DejaVuSerif-Bold')
+except Exception as e:
+    print(f"[proposal_engine] DejaVuSerif mapping failed: {e}")
+
+try:
+    addMapping('Arial', 0, 0, 'Arial')
+    addMapping('Arial', 1, 0, 'Arial-Bold')
+    addMapping('Arial', 0, 1, 'Arial-Italic')
+    addMapping('Arial', 1, 1, 'Arial-Bold')
+except Exception as e:
+    print(f"[proposal_engine] Arial mapping failed: {e}")
+
+try:
+    addMapping('TimesNewRoman', 0, 0, 'TimesNewRoman')
+    addMapping('TimesNewRoman', 1, 0, 'TimesNewRoman-Bold')
+    addMapping('TimesNewRoman', 0, 1, 'TimesNewRoman-Italic')
+    addMapping('TimesNewRoman', 1, 1, 'TimesNewRoman-BoldItalic')
+except Exception as e:
+    print(f"[proposal_engine] TimesNewRoman mapping failed: {e}")
+
 
 # ── Colour palette ──────────────────────────────────────────────────────────
 NAVY       = colors.HexColor("#0B3624")  # Premium Deep Forest Green
-GOLD       = colors.HexColor("#C9A84C")  # Gold accent
+GOLD       = colors.HexColor("#9A6A00")  # Gold accent
 WHITE      = colors.white
 LIGHT_GREY = colors.HexColor("#FAF9F5")  # Page background cream (subtle)
 MID_GREY   = colors.HexColor("#E2E8F0")  # Borders / lines
 DARK_GREY  = colors.HexColor("#334155")  # Soft charcoal slate
 BG_BEIGE   = colors.HexColor("#F3ECE0")  # Segment headers background
-GOLD_TEXT  = colors.HexColor("#9E7A2F")  # Rich deep gold/bronze for readable text on light backgrounds
+GOLD_TEXT  = colors.HexColor("#9A6A00")  # Rich deep gold/bronze for readable text on light backgrounds
 DARK_NAVY  = colors.HexColor("#0A2540")  # Clean dark blue institutional color
 
 
@@ -105,47 +176,47 @@ LABEL_GOLD = style("LabelGold",
     textColor=GOLD, spaceAfter=2)
 
 BODY = style("Body",
-    fontName=FONT_SANS, fontSize=11.5, leading=16,
+    fontName=FONT_UNICODE_SANS, fontSize=11.5, leading=16,
     textColor=DARK_GREY, spaceAfter=3)
 
 BODY_BOLD = style("BodyBold",
-    fontName=FONT_SANS_BOLD, fontSize=11.5, leading=16,
+    fontName=FONT_UNICODE_SANS_BOLD, fontSize=11.5, leading=16,
     textColor=NAVY, spaceAfter=3)
 
 BODY_ITALIC = style("BodyItalic",
-    fontName=FONT_SANS_ITALIC, fontSize=11.5, leading=16,
+    fontName=FONT_UNICODE_SANS_ITALIC, fontSize=11.5, leading=16,
     textColor=DARK_GREY, spaceAfter=3)
 
 TABLE_HEADER = style("TableHeader",
-    fontName=FONT_SANS_BOLD, fontSize=11.5, leading=15,
+    fontName=FONT_UNICODE_SANS_BOLD, fontSize=11.5, leading=15,
     textColor=WHITE, alignment=1)
 
 TABLE_HEADER_LEFT = style("TableHeaderLeft",
-    fontName=FONT_SANS_BOLD, fontSize=11.5, leading=15,
+    fontName=FONT_UNICODE_SANS_BOLD, fontSize=11.5, leading=15,
     textColor=WHITE, alignment=0)
 
 TABLE_HEADER_CENTER = style("TableHeaderCenter",
-    fontName=FONT_SANS_BOLD, fontSize=11.5, leading=15,
+    fontName=FONT_UNICODE_SANS_BOLD, fontSize=11.5, leading=15,
     textColor=WHITE, alignment=1)
 
 TABLE_CELL = style("TableCell",
-    fontName=FONT_SANS, fontSize=10.5, leading=14.5,
+    fontName=FONT_UNICODE_SANS, fontSize=10.5, leading=14.5,
     textColor=DARK_NAVY)
 
 TABLE_CELL_BOLD = style("TableCellBold",
-    fontName=FONT_SANS_BOLD, fontSize=10.5, leading=14.5,
+    fontName=FONT_UNICODE_SANS_BOLD, fontSize=10.5, leading=14.5,
     textColor=DARK_NAVY)
 
 TABLE_CELL_CENTER = style("TableCellCenter",
-    fontName=FONT_SANS, fontSize=10.5, leading=14.5,
+    fontName=FONT_UNICODE_SANS, fontSize=10.5, leading=14.5,
     textColor=DARK_NAVY, alignment=1)
 
 TABLE_CELL_CENTER_BOLD = style("TableCellCenterBold",
-    fontName=FONT_SANS_BOLD, fontSize=10.5, leading=14.5,
+    fontName=FONT_UNICODE_SANS_BOLD, fontSize=10.5, leading=14.5,
     textColor=DARK_NAVY, alignment=1)
 
 TABLE_CELL_AMOUNT = style("TableCellAmount",
-    fontName=FONT_SANS_BOLD, fontSize=10.5, leading=14.5,
+    fontName=FONT_UNICODE_SANS_BOLD, fontSize=10.5, leading=14.5,
     textColor=DARK_NAVY, alignment=1)
 
 DISCLAIMER = style("Disclaimer",
@@ -235,19 +306,19 @@ def format_rupee_words(val):
         if val_float >= 10000000:
             cr = val_float / 10000000
             if cr.is_integer():
-                return f"₹ {int(cr)} Crore" + ("s" if cr > 1 else "")
+                return f'<font name="DejaVuSans-Bold">₹</font> {int(cr)} Crore' + ("s" if cr > 1 else "")
             else:
-                return f"₹ {cr:.1f} Crores"
+                return f'<font name="DejaVuSans-Bold">₹</font> {cr:.1f} Crores'
         elif val_float >= 100000:
             lakhs = val_float / 100000
             if lakhs.is_integer():
-                return f"₹ {int(lakhs)} Lakhs"
+                return f'<font name="DejaVuSans-Bold">₹</font> {int(lakhs)} Lakhs'
             else:
-                return f"₹ {lakhs:.1f} Lakhs"
+                return f'<font name="DejaVuSans-Bold">₹</font> {lakhs:.1f} Lakhs'
         else:
-            return f"₹ {val_float:,.0f}"
+            return f'<font name="DejaVuSans-Bold">₹</font> {val_float:,.0f}'
     except:
-        return f"₹ {val}"
+        return f'<font name="DejaVuSans-Bold">₹</font> {val}'
 
 
 # ── Custom Flowables / Drawings ──────────────────────────────────────────────
@@ -310,7 +381,7 @@ def make_dashboard_donut(allocations, corpus_str, size=200):
     d.add(String(cx, cy + 5, "Total Corpus", textAnchor="middle",
                  fontName=FONT_SANS, fontSize=9, fillColor=DARK_GREY))
     d.add(String(cx, cy - 10, format_corpus_short(corpus_str), textAnchor="middle",
-                 fontName=FONT_SERIF_BOLD, fontSize=18, fillColor=NAVY))
+                 fontName=FONT_UNICODE_SERIF_BOLD, fontSize=18, fillColor=NAVY))
     return d
 
 
@@ -337,7 +408,12 @@ def make_dashboard_legend_table(allocations):
         part_idx = int(a.get("Part", 1)) - 1
         color = PIE_COLORS[part_idx % len(PIE_COLORS)]
         pct_str = str(a.get("Allocation %", 0)).replace("%", "").strip()
-        name = str(a.get("Segment Name", ""))
+        name_val = str(a.get("Segment Name", ""))
+        sub_val = str(a.get("AMFI_Subtitle", ""))
+        if sub_val:
+            name = f"{name_val}<br/><font size='8.5' color='#9A6A00'><b>{sub_val}</b></font>"
+        else:
+            name = name_val
         desc = str(a.get("Objective", ""))
         
         # Color square drawing - aligned slightly higher to align with text
@@ -421,7 +497,7 @@ def append_contact_block(story, firm, tagline, firm_name_raw):
     style_title = style("CLeftTitleWhite", fontName=FONT_SANS_BOLD, fontSize=10.5, leading=13, textColor=colors.white)
     style_addr = style("CLeftAddrWhite", fontName=FONT_SANS, fontSize=8, leading=11, textColor=colors.HexColor("#CBD5E1"))
     style_details = style("CLeftDetailsWhite", fontName=FONT_SANS, fontSize=8, leading=11, textColor=colors.HexColor("#CBD5E1"))
-    style_tagline = style("CRightTaglineGold", fontName=FONT_SERIF_ITALIC, fontSize=11, leading=14, textColor=GOLD, alignment=2)
+    style_tagline = style("CRightTaglineWhite", fontName=FONT_SERIF_ITALIC, fontSize=11, leading=14, textColor=colors.white, alignment=2)
     
     contact_left = [
         Paragraph(f"<b>{firm_name_raw}</b>", style_title),
@@ -579,40 +655,6 @@ def read_excel(path_or_file):
 
 
 # ── Canvas Background Drawings ──────────────────────────────────────────────
-def print_step_log(step_name):
-    import os
-    import time
-    from datetime import datetime
-    import sys
-    
-    rss_mb = 0.0
-    try:
-        if os.name == 'nt':
-            import subprocess
-            import csv
-            pid = os.getpid()
-            out = subprocess.check_output(['tasklist', '/FI', f'PID eq {pid}', '/FO', 'CSV', '/NH']).decode('utf-8', errors='ignore')
-            reader = csv.reader([out.strip()])
-            row = next(reader)
-            if len(row) >= 5:
-                mem_str = row[4].replace(' K', '').replace(' KB', '').replace(',', '').strip()
-                rss_mb = float(mem_str) / 1024
-        else:
-            try:
-                with open('/proc/self/status', 'r') as f:
-                    for line in f:
-                        if line.startswith('VmRSS:'):
-                            rss_mb = float(line.split()[1]) / 1024
-                            break
-            except Exception:
-                import resource
-                rss_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
-    except Exception:
-        pass
-        
-    print(f"{step_name} | RAM: {rss_mb:.2f} MB | Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')}", flush=True)
-    sys.stdout.flush()
-
 def draw_cover_bg(c, doc):
     c.saveState()
     # Solid Navy top 2/3: from y = 198 to H (y-up in ReportLab)
@@ -633,15 +675,11 @@ def draw_cover_bg(c, doc):
     c.setFillColor(GOLD)
     c.rect(0, 196.42, W, 4, fill=1, stroke=0)
     c.restoreState()
-    print_step_log("[STEP 8] Cover page completed")
 
 
 def draw_later_bg(c, doc):
-    page_num = c.getPageNumber()
-    if page_num == 3:
-        print_step_log("[STEP 9] Asset Allocation page completed")
-    elif page_num == 10:
-        print_step_log("[STEP 10] Recommendation pages completed")
+    # Clean page background with no outer border or stripes
+    pass
 
 
 def make_target_return_badge(return_text, fs_val):
@@ -783,24 +821,23 @@ def generate_pdf_from_data(data, output_path=None):
     else:
         target = output_path
 
-    # Group products by Part
-    parts_data = {1: [], 2: [], 3: [], 4: []}
+    # Group products by Part dynamically
+    parts_data = {}
     for p in products:
         try:
-            pt = int(float(str(p.get("Part", 4)).replace("Part", "").strip()))
+            pt = int(float(str(p.get("Part", 1)).replace("Part", "").strip()))
         except:
-            pt = 4
+            pt = 1
         if pt not in parts_data:
-            pt = 4
+            parts_data[pt] = []
         parts_data[pt].append(p)
         
-    active_parts = [pt for pt in [1, 2, 3, 4] if len(parts_data[pt]) > 0]
-    last_active_part = active_parts[-1] if active_parts else 4
+    active_parts = sorted(list(parts_data.keys()))
+    last_active_part = active_parts[-1] if active_parts else 1
     
-    p1_alloc = sum(clean_float(p.get("Allocation (INR)", "0")) for p in parts_data[1])
-    p2_alloc = sum(clean_float(p.get("Allocation (INR)", "0")) for p in parts_data[2])
-    p3_alloc = sum(clean_float(p.get("Allocation (INR)", "0")) for p in parts_data[3])
-    p4_alloc = sum(clean_float(p.get("Allocation (INR)", "0")) for p in parts_data[4])
+    part_allocations = {}
+    for pt in active_parts:
+        part_allocations[pt] = sum(clean_float(p.get("Allocation (INR)", "0")) for p in parts_data[pt])
 
     doc = SimpleDocTemplate(
         target,
@@ -810,6 +847,50 @@ def generate_pdf_from_data(data, output_path=None):
         onFirstPage=draw_cover_bg,
         onLaterPages=draw_later_bg
     )
+    
+    # Custom PageTemplate for Cover (Page 1)
+    cover_frame = Frame(
+        51, 32,
+        doc.width, doc.height,
+        id='CoverFrame',
+        leftPadding=0, rightPadding=0,
+        topPadding=0, bottomPadding=0
+    )
+    cover_template = PageTemplate(
+        id='FirstPage',
+        frames=cover_frame,
+        onPage=draw_cover_bg
+    )
+
+    # Custom PageTemplate for Page 2 (12pt margins left/right, 2pt top/bottom)
+    page2_frame = Frame(
+        12, 2,                  # x, y
+        doc.width + 78, 591.27, # width, height (817.89 x 591.27)
+        id='Page2Frame',
+        leftPadding=0, rightPadding=0,
+        topPadding=0, bottomPadding=0
+    )
+    page2_template = PageTemplate(
+        id='Page2Template',
+        frames=page2_frame,
+        onPage=draw_later_bg
+    )
+
+    # Custom PageTemplate for Later Pages
+    later_frame = Frame(
+        51, 32,
+        doc.width, doc.height,
+        id='LaterFrame',
+        leftPadding=0, rightPadding=0,
+        topPadding=0, bottomPadding=0
+    )
+    later_template = PageTemplate(
+        id='Later',
+        frames=later_frame,
+        onPage=draw_later_bg
+    )
+    
+    doc.addPageTemplates([cover_template, page2_template, later_template])
 
     story = []
     
@@ -857,127 +938,277 @@ def generate_pdf_from_data(data, output_path=None):
     story.append(box_table)
     
     # ─────────────────────────────────────────────────────────────────────────
-    # Page 2: Firm + Founder Profile
+    # Page 2: Company Profile
     # ─────────────────────────────────────────────────────────────────────────
+    story.append(NextPageTemplate('Page2Template'))
     story.append(PageBreak())
     
-    # Headers
-    header_style_lbl = style("P2HeaderLbl", fontName=FONT_SANS_BOLD, fontSize=8.5, leading=11, textColor=GOLD)
-    header_style_title = style("P2HeaderTitle", fontName=FONT_SERIF_BOLD, fontSize=20, leading=24, textColor=NAVY)
-    
-    # Firm text content
-    aum = firm.get("AUM (Crores)", "1500")
-    team = firm.get("Team Size", "30")
-    loc = firm.get("Location", "Thane")
+    P2_CENTER_SUB = style("P2CenterSub", fontName=FONT_SANS_BOLD, fontSize=9.0, leading=12, textColor=GOLD, alignment=1)
+    P2_CENTER_TITLE = style("P2CenterTitle", fontName=FONT_SERIF_BOLD, fontSize=24, leading=28, textColor=NAVY, alignment=1)
+    P2_BODY = style("P2Body", parent=BODY, fontSize=12.0, leading=15.0, spaceAfter=2, alignment=4)
+    P2_LEGACY_TITLE = style("P2LegacyTitle", fontName=FONT_SERIF_BOLD, fontSize=24, leading=28, textColor=NAVY)
+    P2_PAGE_TITLE = style("P2PageTitle", parent=P2_LEGACY_TITLE, leftIndent=39)
     
     firm_p1 = (
-        f"Established in 2011, {firm_name_raw} has spent 15 years "
-        f"institutionalizing the philosophy of \"Client Interest "
-        f"First.\" We are a {team}-member specialized wealth management "
-        f"firm operating out of {loc}, currently managing a diverse "
-        f"AUM of Rs. {aum} Crores across Mutual Funds, PMS, AIFs, SIFs, "
-        f"and Direct Equity."
+        "Established in 2011, <b>Samarth Wealth Pvt. Ltd.</b> has spent the last 15 years "
+        "institutionalizing the philosophy of <b>\"Client Interest First.\"</b> Headquartered "
+        "in <b>Thane</b>, we are a team of <b>30+ dedicated wealth management professionals</b> "
+        "committed to helping individuals, families, business owners, and professionals "
+        "achieve their long-term financial goals. Today, we manage a diversified "
+        "<b>Assets Under Management (AUM) of over ₹1,500 Crores</b> across Mutual Funds, "
+        "Portfolio Management Services (PMS), Alternative Investment Funds (AIFs), "
+        "Specialized Investment Funds (SIFs), and Direct Equity. Through a disciplined, "
+        "research-driven approach and personalized financial planning, we strive to "
+        "deliver investment solutions that are aligned with each client's unique "
+        "objectives, risk appetite, and wealth creation journey."
     )
     firm_p2 = (
-        "Our core strength lies in our rigorous selection process and "
-        "regular direct engagements with Fund Managers and CIOs "
-        "of top AMCs. This ensures our clients receive insights before "
-        "they become headlines. At Samarth, we don't just manage "
-        "money; we safeguard legacies with a strict Zero Mis-selling "
-        "policy."
+        "Our core strength lies in our rigorous investment selection process and our "
+        "continuous engagement with Fund Managers, Chief Investment Officers (CIOs), "
+        "and senior leadership teams of leading Asset Management Companies (AMCs). "
+        "These direct interactions provide valuable insights into market trends, "
+        "investment strategies, and emerging opportunities, enabling us to make "
+        "informed decisions on behalf of our clients. At <b>Samarth Wealth Pvt. Ltd.</b>, transparency, "
+        "trust, and ethical conduct are at the heart of everything we do. Guided by "
+        "a strict <b>Zero Mis-selling Policy</b>, we ensure that every recommendation is "
+        "made solely in the best interest of our clients. We believe wealth management "
+        "goes beyond managing investments—it is about preserving capital, creating "
+        "sustainable long-term growth, and safeguarding the financial legacy of "
+        "generations to come."
     )
     
-    # Founder text content
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    logo_img_path = os.path.join(current_dir, "extracted_img_p2_1_147.jpeg")
+    if not os.path.exists(logo_img_path):
+        if os.path.exists("extracted_img_p2_1_147.jpeg"):
+            logo_img_path = "extracted_img_p2_1_147.jpeg"
+
+    if not os.path.exists(logo_img_path):
+        logo_table = make_image_placeholder("Samarth Wealth", width=352, height=220)
+    else:
+        logo_img = Image(logo_img_path, width=352, height=220)
+        logo_table = Table([[logo_img]], colWidths=[352], hAlign='CENTER')
+        logo_table.setStyle(TableStyle([
+            ('TOPPADDING', (0, 0), (-1, -1), 0),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
+            ('LEFTPADDING', (0, 0), (-1, -1), 0),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+        ]))
+        
+    story.append(Paragraph("<u>COMPANY PROFILE</u>", P2_PAGE_TITLE))
+    story.append(Spacer(1, 10))
+    story.append(logo_table)
+    story.append(Spacer(1, 20))
+    story.append(Paragraph("OUR FIRM", P2_CENTER_SUB))
+    story.append(Spacer(1, 8))
+    story.append(Paragraph("The Samarth Wealth Legacy", P2_CENTER_TITLE))
+    story.append(Spacer(1, 8))
+    gold_bar_table = Table([[make_gold_bar(54, 3.6)]], colWidths=[54], hAlign='CENTER')
+    gold_bar_table.setStyle(TableStyle([
+        ('TOPPADDING', (0, 0), (-1, -1), 0),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
+        ('LEFTPADDING', (0, 0), (-1, -1), 0),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+    ]))
+    story.append(gold_bar_table)
+    story.append(Spacer(1, 20))
+    
+    desc_content = [
+        Paragraph(firm_p1, P2_BODY),
+        Spacer(1, 15),
+        Paragraph(firm_p2, P2_BODY)
+    ]
+    desc_table = Table([[desc_content]], colWidths=[760], hAlign='CENTER')
+    desc_table.setStyle(TableStyle([
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('LEFTPADDING', (0, 0), (-1, -1), 0),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+        ('TOPPADDING', (0, 0), (-1, -1), 0),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
+    ]))
+    story.append(desc_table)
+    
+    # ── Page 3: Our Founders
+    # ─────────────────────────────────────────────────────────────────────────
+    story.append(NextPageTemplate('Later'))
+    story.append(PageBreak())
+    
+    P2_FOUNDER_NAME = style("P2FounderName", fontName=FONT_SERIF_BOLD, fontSize=24, leading=28, textColor=NAVY)
+    P2_FOUNDER_TITLE = style("P2FounderTitle", fontName=FONT_SANS_BOLD, fontSize=13.0, leading=17.0, textColor=GOLD, spaceAfter=3)
+    P2_BIO_BODY = style("P2BioBody", parent=BODY, fontSize=9.8, leading=11.5, spaceAfter=2, alignment=4)
+    P2_LEGACY_TITLE = style("P2LegacyTitle", fontName=FONT_SERIF_BOLD, fontSize=24, leading=28, textColor=NAVY)
+    header_style_lbl = style("P2HeaderLbl", fontName=FONT_SANS_BOLD, fontSize=9.0, leading=12, textColor=GOLD)
+    
+    story.append(Paragraph("<u>OUR FOUNDERS</u>", P2_LEGACY_TITLE))
+    story.append(Spacer(1, 15))
+    
     adv_name = firm.get("Advisor Name", "Abhinandan Honale")
-    adv_title = firm.get("Advisor Title", "Co-Founder & Head: Wealth Management")
+    adv_title = "Co-Founder"  # Hardcoded — always display as Co-Founder
     adv_bg = (
-        f"As a Co-Founder, {adv_name} brings a rare blend of "
-        f"technical precision and institutional experience. Following "
-        f"his Engineering degree, he pursued an MBA in Finance and "
-        f"earned the prestigious FRM (Financial Risk Manager) "
-        f"certification from the Global Association of Risk "
-        f"Professionals (GARP, US)."
+        "As a Co-Founder, <b>Abhinandan Honale</b> brings a unique combination of technical expertise, "
+        "financial acumen, and institutional experience to <b>Samarth Wealth Pvt. Ltd.</b> After completing "
+        "his <b>Engineering degree</b>, he pursued an <b>MBA in Finance</b> and further strengthened "
+        "his credentials by earning the globally recognized <b>Financial Risk Manager (FRM)</b> "
+        "certification from the <b>Global Association of Risk Professionals (GARP), USA</b>. His "
+        "strong academic foundation enables him to approach wealth management with a "
+        "disciplined, analytical, and risk-conscious mindset."
     )
     adv_p2 = (
-        "His professional pedigree includes formative years at ICICI "
-        "Bank Wealth Management and Deutsche Bank "
-        "Investment Banking. This background allows him to analyze "
-        "portfolios through the lens of institutional risk management, "
-        "ensuring that your wealth is not just growing, but is resilient "
-        "against global macroeconomic shocks."
+        "Prior to co-founding <b>Samarth Wealth Pvt. Ltd.</b>, Abhinandan gained valuable experience at "
+        "leading financial institutions, including <b>ICICI Bank Wealth Management</b> and "
+        "<b>Deutsche Bank Investment Banking</b>. These roles provided him with deep exposure to "
+        "<b>portfolio management</b>, financial markets, <b>risk assessment</b>, and "
+        "<b>investment strategy</b>. Leveraging this institutional background, he helps clients "
+        "navigate complex market environments by focusing not only on wealth creation but "
+        "also on <b>capital preservation</b>. His expertise in <b>risk management</b> ensures that "
+        "client portfolios are designed to withstand market volatility and global macroeconomic "
+        "uncertainties while remaining aligned with <b>long-term financial goals</b>. Under his "
+        "leadership, <b>Samarth Wealth Pvt. Ltd.</b> combines <b>institutional-grade investment discipline</b> "
+        "with a client-centric approach, helping investors build resilient and sustainable "
+        "wealth across market cycles."
     )
     
-    # Logo image inside gold-bordered table
-    logo_img_path = "extracted_img_p2_1_147.jpeg"
-    if not os.path.exists(logo_img_path):
-        left_img = make_image_placeholder("Samarth Wealth", width=272, height=170)
-    else:
-        logo_img = Image(logo_img_path, width=272, height=170)
-        left_img = Table([[logo_img]], colWidths=[272], hAlign='LEFT')
-        left_img.setStyle(TableStyle([
-            ('GRID', (0, 0), (-1, -1), 0.75, GOLD),
-            ('TOPPADDING', (0, 0), (-1, -1), 0),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
-            ('LEFTPADDING', (0, 0), (-1, -1), 0),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 0),
-        ]))
+    adv2_name = "Pranjal Wagh"
+    adv2_title = "Co-Founder"  # Hardcoded — always display as Co-Founder
+    adv2_bg = (
+        "As a Co-Founder, <b>Pranjal Wagh</b> brings over <b>16 years of extensive experience</b> "
+        "in the financial services industry, with expertise spanning <b>wealth management</b>, "
+        "<b>financial goal planning</b>, <b>client relationship management</b>, and "
+        "<b>business strategy</b>. Following his <b>MBA in Marketing</b> from <b>N. L. Dalmia "
+        "Institute of Management Studies & Research</b>, he further strengthened his "
+        "professional credentials by becoming a <b>Certified Advanced Financial Goal Planner</b> "
+        "and completing the <b>Business Strategy Excellence Program</b> from <b>IIM Udaipur</b>. "
+        "His strong academic foundation, combined with years of hands-on industry "
+        "experience, enables him to understand the evolving financial needs of "
+        "individuals and families across different stages of wealth creation and preservation."
+    )
+    adv2_p2 = (
+        "His professional journey includes formative years at <b>HDFC Bank</b>, where he honed "
+        "his skills in team leadership, <b>client acquisition</b>, <b>relationship management</b>, "
+        "and delivering customized <b>financial solutions</b>. Over the years, he has built a "
+        "reputation for creating practical, client-centric wealth strategies that balance growth "
+        "opportunities with long-term financial security. His ability to simplify complex "
+        "financial concepts and align investment decisions with client objectives has been "
+        "instrumental in helping investors achieve sustainable wealth creation and lasting "
+        "financial success."
+    )
 
-    # Founder photo inside gold-bordered table
-    founder_img_path = "extracted_img_p2_2_150.jpeg"
-    if not os.path.exists(founder_img_path):
-        right_img = make_image_placeholder(adv_name, width=255, height=170)
-    else:
-        founder_img = Image(founder_img_path, width=255, height=170)
-        right_img = Table([[founder_img]], colWidths=[255], hAlign='LEFT')
-        right_img.setStyle(TableStyle([
-            ('GRID', (0, 0), (-1, -1), 0.75, GOLD),
-            ('TOPPADDING', (0, 0), (-1, -1), 0),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
-            ('LEFTPADDING', (0, 0), (-1, -1), 0),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 0),
-        ]))
-
-    left_flow = [
-        left_img,
-        Spacer(1, 8),
-        Paragraph("OUR FIRM", header_style_lbl),
-        Paragraph("The Samarth Wealth Legacy", header_style_title),
-        make_gold_bar(54, 3.6),
-        Spacer(1, 6),
-        Paragraph(firm_p1, BODY),
-        Spacer(1, 4),
-        Paragraph(firm_p2, BODY)
-    ]
     
-    right_flow = [
-        right_img,
-        Spacer(1, 8),
+    founder1_img_path = os.path.join(current_dir, "founder.jpeg")
+    if not os.path.exists(founder1_img_path):
+        founder1_img_path = os.path.join(current_dir, "founder.jpg")
+    if not os.path.exists(founder1_img_path):
+        founder1_img_path = os.path.join(current_dir, "extracted_img_p2_2_150.jpeg")
+    if not os.path.exists(founder1_img_path):
+        if os.path.exists("founder.jpeg"):
+            founder1_img_path = "founder.jpeg"
+        elif os.path.exists("founder.jpg"):
+            founder1_img_path = "founder.jpg"
+        elif os.path.exists("extracted_img_p2_2_150.jpeg"):
+            founder1_img_path = "extracted_img_p2_2_150.jpeg"
+
+    if not os.path.exists(founder1_img_path):
+        f1_img = make_image_placeholder(adv_name, width=230, height=130)
+    else:
+        founder1_img = Image(founder1_img_path, width=230, height=130)
+        f1_img = Table([[founder1_img]], colWidths=[230], hAlign='LEFT')
+        f1_img.setStyle(TableStyle([
+            ('GRID', (0, 0), (-1, -1), 0.75, GOLD),
+            ('TOPPADDING', (0, 0), (-1, -1), 0),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
+            ('LEFTPADDING', (0, 0), (-1, -1), 0),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+        ]))
+
+    founder2_img_path = os.path.join(current_dir, "founder_2.jpg")
+    if not os.path.exists(founder2_img_path):
+        if os.path.exists("founder_2.jpg"):
+            founder2_img_path = "founder_2.jpg"
+
+    if not os.path.exists(founder2_img_path):
+        f2_img = make_image_placeholder(adv2_name, width=230, height=130)
+    else:
+        founder2_img = Image(founder2_img_path, width=230, height=130)
+        f2_img = Table([[founder2_img]], colWidths=[230], hAlign='LEFT')
+        f2_img.setStyle(TableStyle([
+            ('GRID', (0, 0), (-1, -1), 0.75, GOLD),
+            ('TOPPADDING', (0, 0), (-1, -1), 0),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
+            ('LEFTPADDING', (0, 0), (-1, -1), 0),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+        ]))
+
+    founder1_top = [
+        f1_img,
+        Spacer(1, 5),
         Paragraph("FOUNDER PROFILE", header_style_lbl),
-        Paragraph(adv_name, header_style_title),
-        make_gold_bar(54, 3.6),
-        Spacer(1, 6),
-        Paragraph(adv_bg, BODY),
+        Spacer(1, 5),
+        Paragraph(adv_name, P2_FOUNDER_NAME),
         Spacer(1, 4),
-        Paragraph(adv_p2, BODY)
+        make_gold_bar(54, 3.6),
+        Spacer(1, 5),
+        Paragraph(adv_title.replace("&", "&amp;"), P2_FOUNDER_TITLE),
+        Spacer(1, 5),
     ]
     
-    p2_table = Table([[left_flow, "", right_flow]], colWidths=[W_net * 0.47, W_net * 0.06, W_net * 0.47], hAlign='LEFT')
-    p2_table.setStyle(TableStyle([
+    founder2_top = [
+        f2_img,
+        Spacer(1, 5),
+        Paragraph("FOUNDER PROFILE", header_style_lbl),
+        Spacer(1, 5),
+        Paragraph(adv2_name, P2_FOUNDER_NAME),
+        Spacer(1, 4),
+        make_gold_bar(54, 3.6),
+        Spacer(1, 5),
+        Paragraph(adv2_title.replace("&", "&amp;"), P2_FOUNDER_TITLE),
+        Spacer(1, 5),
+    ]
+    
+    bio1_flow = [
+        Paragraph(adv_bg, P2_BIO_BODY),
+        Spacer(1, 2),
+        Paragraph(adv_p2, P2_BIO_BODY)
+    ]
+    
+    bio2_flow = [
+        Paragraph(adv2_bg, P2_BIO_BODY),
+        Spacer(1, 2),
+        Paragraph(adv2_p2, P2_BIO_BODY)
+    ]
+    
+    col_w = (739.89 - 20) / 2
+    table_content = [
+        [founder1_top, "", founder2_top],
+        [bio1_flow, "", bio2_flow]
+    ]
+    bottom_table = Table(table_content, colWidths=[col_w, 20, col_w], hAlign='LEFT')
+    bottom_table.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
         ("RIGHTPADDING", (0, 0), (-1, -1), 0),
         ("TOPPADDING", (0, 0), (-1, -1), 0),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
     ]))
-    story.append(p2_table)
+    
+    # Debug print
+    _, h_bot_dbg = bottom_table.wrap(817.89, 600)
+    print(f"[DEBUG] Actual Bottom Table wrapped height: {h_bot_dbg}", flush=True)
+    
+    story.append(bottom_table)
 
     # ─────────────────────────────────────────────────────────────────────────
     # Page 3: Investment Proposal Summary
     # ─────────────────────────────────────────────────────────────────────────
+    story.append(NextPageTemplate('Later'))
     story.append(PageBreak())
     
     # Page 3 Top Header
-    logo_img_path = "extracted_img_p2_1_147.jpeg"
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    logo_img_path = os.path.join(current_dir, "extracted_img_p2_1_147.jpeg")
+    if not os.path.exists(logo_img_path):
+        if os.path.exists("extracted_img_p2_1_147.jpeg"):
+            logo_img_path = "extracted_img_p2_1_147.jpeg"
+
     if os.path.exists(logo_img_path):
         p3_logo = Image(logo_img_path, width=100.8, height=63)
     else:
@@ -990,15 +1221,9 @@ def generate_pdf_from_data(data, output_path=None):
         Paragraph(client_name, style("P3H2", fontName=FONT_SERIF_BOLD, fontSize=24, leading=28, textColor=NAVY))
     ]
 
-    founder_text = Paragraph(
-        f"<font size='11'><b>{adv_name}</b></font><br/>"
-        f"<font size='9' color='{DARK_GREY.hexval()}'>{adv_title}</font>",
-        style("P3FounderText", fontName=FONT_SANS, alignment=2, textColor=DARK_GREY)
-    )
-
+    # Founder signature block removed from top-right per requirement
     header_right = [
-        Spacer(1, 8),
-        founder_text
+        Spacer(1, 8)
     ]
 
     header_table = Table([[header_left, header_right]], colWidths=[W_net * 0.65, W_net * 0.35], hAlign='LEFT')
@@ -1128,28 +1353,28 @@ def generate_pdf_from_data(data, output_path=None):
     table_rows = [headers]
     row_idx = 1
     
-    roman_numerals = {1: "I", 2: "II", 3: "III", 4: "IV"}
-    default_segment_names = {
-        1: "SAFETY RESERVE",
-        2: "STABLE INCOME",
-        3: "BALANCED GROWTH",
-        4: "WEALTH CREATION"
-    }
+    active_parts = sorted(list(parts_data.keys()))
+    
     segment_titles = {}
-    for pt_num in [1, 2, 3, 4]:
+    for pt_num in active_parts:
         a = next((x for x in allocs if int(x.get("Part", 0)) == pt_num), None)
         if a and a.get("Segment Name"):
             seg_name = str(a.get("Segment Name")).upper()
+            sub_val = str(a.get("AMFI_Subtitle", ""))
+            if sub_val:
+                seg_name_formatted = f"{seg_name}<br/><font size='7.5' color='#9A6A00'><b>{sub_val.upper()}</b></font>"
+            else:
+                seg_name_formatted = seg_name
         else:
-            seg_name = default_segment_names[pt_num]
-        segment_titles[pt_num] = f"{roman_numerals[pt_num]}. {seg_name}"
+            seg_name_formatted = f"CATEGORY {pt_num}"
+        segment_titles[pt_num] = f"{get_roman_numeral(pt_num)}. {seg_name_formatted}"
     
-    for pt in [1, 2, 3, 4]:
+    for pt in active_parts:
         pt_products = parts_data[pt]
         if len(pt_products) > 0:
-            pt_alloc = sum(clean_float(p.get("Allocation (INR)", "0")) for p in pt_products)
+            pt_alloc = part_allocations[pt]
             table_rows.append([
-                Paragraph(f"<b>{segment_titles[pt]} &nbsp;&nbsp;|&nbsp;&nbsp; <font color='#9E7A2F'>{format_rupee_words(pt_alloc)}</font></b>", style_segment_header),
+                Paragraph(f"<b>{segment_titles[pt]} &nbsp;&nbsp;|&nbsp;&nbsp; <font color='#9A6A00'>{format_rupee_words(pt_alloc)}</font></b>", style_segment_header),
                 "", "", ""
             ])
             t_style.append(('SPAN', (0, row_idx), (-1, row_idx)))
@@ -1159,7 +1384,7 @@ def generate_pdf_from_data(data, output_path=None):
             
             for p in pt_products:
                 amt_val = clean_float(p.get("Allocation (INR)", "0"))
-                amt_str = f"₹ {amt_val:,.0f}" if amt_val > 0 else "—"
+                amt_str = f'<font name="DejaVuSans-Bold">₹</font> {amt_val:,.0f}' if amt_val > 0 else "—"
                 
                 # Wrap target return in green badge
                 tr_badge = make_target_return_badge(p.get("Target Return", ""), fs)
@@ -1168,7 +1393,7 @@ def generate_pdf_from_data(data, output_path=None):
                     Paragraph(p.get("Product Name", ""), style_cell_bold),
                     Paragraph(amt_str, style_cell_amount), # Dark navy bold amount
                     tr_badge,
-                    Paragraph(p.get("Why Selected", "") or p.get("Core Rationale", ""), style_cell)
+                    Paragraph(p.get("summary_rationale") or p.get("Why Selected") or p.get("Core Rationale") or "", style_cell)
                 ])
                 t_style.append(('LINEBELOW', (0, row_idx), (-1, row_idx), 0.5, colors.HexColor("#CBD5E1")))
                 row_idx += 1
@@ -1197,376 +1422,57 @@ def generate_pdf_from_data(data, output_path=None):
     story.append(t_summary)
 
     # ─────────────────────────────────────────────────────────────────────────
-    # Page 6: Part 1 - Liquidity & Safety Details
+    # Dynamic Category-wise Detail Pages
     # ─────────────────────────────────────────────────────────────────────────
-    if len(parts_data[1]) > 0:
+    for pt in active_parts:
+        pt_products = parts_data[pt]
+        if len(pt_products) == 0:
+            continue
+            
         story.append(PageBreak())
         
-        p1_name = next((a.get("Segment Name") for a in allocs if int(a.get("Part", 0)) == 1), "Safety Reserve")
+        # Get category details
+        a = next((x for x in allocs if int(x.get("Part", 0)) == pt), {})
+        p_name = a.get("Segment Name") or "Category Details"
+        p_sub = a.get("AMFI_Subtitle") or ""
+        p_obj = a.get("Objective") or ""
+        pt_alloc = part_allocations[pt]
+        
+        # Format the title with the subtitle
+        if p_sub:
+            p_title_formatted = f"{p_name}<br/><font size='10' color='#9A6A00'><b>{p_sub}</b></font>"
+        else:
+            p_title_formatted = p_name
+            
         left_flow = [
-            Paragraph("PART 1", style("PartGold1", fontName=FONT_SANS_BOLD, fontSize=9, leading=11, textColor=GOLD)),
+            Paragraph(f"PART {pt}", style(f"PartGold_{pt}", fontName=FONT_SANS_BOLD, fontSize=9, leading=11, textColor=GOLD)),
             Spacer(1, 2),
-            Paragraph(p1_name, style("PartTitle1", fontName=FONT_SERIF_BOLD, fontSize=20, leading=24, textColor=NAVY)),
+            Paragraph(p_title_formatted, style(f"PartTitle_{pt}", fontName=FONT_SERIF_BOLD, fontSize=20, leading=24, textColor=NAVY)),
             Spacer(1, 4),
             make_gold_bar(54, 3)
         ]
         right_flow = [
             Spacer(1, 8),
-            Paragraph(format_rupee_words(p1_alloc), style("PartAlloc1", fontName=FONT_SERIF_BOLD, fontSize=18, leading=22, textColor=GOLD, alignment=2))
+            Paragraph(format_rupee_words(pt_alloc), style(f"PartAlloc_{pt}", fontName=FONT_SERIF_BOLD, fontSize=18, leading=22, textColor=GOLD, alignment=2))
         ]
-        p1_header_table = Table([[left_flow, right_flow]], colWidths=[W_net - 260, 260], hAlign='LEFT')
-        p1_header_table.setStyle(TableStyle([
+        header_table = Table([[left_flow, right_flow]], colWidths=[W_net - 260, 260], hAlign='LEFT')
+        header_table.setStyle(TableStyle([
             ("VALIGN", (0, 0), (-1, -1), "TOP"),
             ("LEFTPADDING", (0, 0), (-1, -1), 0),
             ("RIGHTPADDING", (0, 0), (-1, -1), 0),
             ("TOPPADDING", (0, 0), (-1, -1), 0),
             ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
         ]))
-        story.append(p1_header_table)
+        story.append(header_table)
         story.append(Spacer(1, 10))
         
-        p1_obj = next((a.get("Objective", "") for a in allocs if int(a.get("Part", 0)) == 1), "Keeps a portion of your money safe, highly reliable, and easily accessible whenever needed.")
-        story.append(Paragraph(f"<b>Objective:</b> {p1_obj}", BODY))
+        story.append(Paragraph(f"<b>Objective:</b> {p_obj}", BODY))
         story.append(HRFlowable(width="100%", thickness=0.5, color=MID_GREY, spaceBefore=4, spaceAfter=10))
         
-        p1_cols = [
-            Paragraph("RECOMMENDED PRODUCT", style_hdr_left),
-            Paragraph("STRATEGY & RATIONALE", style_hdr_left),
-            Paragraph("ALLOCATION", style_hdr_center)
-        ]
-        p1_table_rows = [p1_cols]
-        
-        # Calculate row count (add 1 if total row will be added)
-        p1_total_rows = len(parts_data[1]) + 1
-        if len(parts_data[1]) > 0:
-            p1_total_rows += 1
-            
-        padding_p1, fs_p1, lead_p1 = get_table_padding_and_fontsize(p1_total_rows)
-        style_p1 = ParagraphStyle("TableCellP1", parent=TABLE_CELL, fontSize=fs_p1, leading=lead_p1)
-        style_p1_bold = ParagraphStyle("TableCellBoldP1", parent=TABLE_CELL_BOLD, fontSize=fs_p1, leading=lead_p1)
-        style_p1_amount = ParagraphStyle("TableCellAmountP1", parent=TABLE_CELL_AMOUNT, fontSize=fs_p1, leading=lead_p1)
-        
-        for p in parts_data[1]:
-            amt_val = clean_float(p.get("Allocation (INR)", "0"))
-            amt_words = format_rupee_words(amt_val)
-                
-            p_cell = [
-                Paragraph(f"<b>{p.get('Product Name', '')}</b>", style_p1_bold),
-                Paragraph(f"<font color='#0A2540'><b>Exp. Return: {p.get('Target Return', '')}</b></font>", style_p1_bold)
-            ]
-            
-            p1_table_rows.append([
-                p_cell,
-                Paragraph(p.get("Why Selected", "") or p.get("Core Rationale", ""), style_p1),
-                Paragraph(amt_words, style_p1_amount)
-            ])
-            
-        if len(p1_table_rows) == 1:
-            p1_table_rows.append([
-                Paragraph("No investments recommended in this segment", style_p1_bold),
-                Paragraph("Capital reserved for other assets", style_p1),
-                Paragraph("—", style_p1_amount)
-            ])
-        else:
-            # Add Total section allocation row
-            p1_table_rows.append([
-                Paragraph("<b>TOTAL SECTION ALLOCATION</b>", style_p1_bold),
-                Paragraph("", style_p1),
-                Paragraph(format_rupee_words(p1_alloc), style_p1_amount)
-            ])
-            
-        p1_details_table = Table(p1_table_rows, colWidths=[W_net * 0.27, W_net * 0.57, W_net * 0.16], hAlign='LEFT')
-        p1_table_style = [
-            ("BACKGROUND", (0, 0), (-1, 0), NAVY),
-            ("LINEABOVE", (0, 0), (-1, 0), 1.5, GOLD), # Top bounding gold border
-            ("LINEBELOW", (0, 0), (-1, 0), 1.5, GOLD),
-            ("LINEBELOW", (0, 1), (-1, -1), 0.5, colors.HexColor("#CBD5E1")), # Slate horizontal lines
-            ("LINEBELOW", (0, -1), (-1, -1), 1.5, GOLD), # Bottom bounding gold border
-            ("VALIGN", (0, 0), (-1, -1), "TOP"),
-            ("TOPPADDING", (0, 0), (-1, 0), 8),
-            ("BOTTOMPADDING", (0, 0), (-1, 0), 8),
-            ("TOPPADDING", (0, 1), (-1, -1), padding_p1 + 3),
-            ("BOTTOMPADDING", (0, 1), (-1, -1), padding_p1 + 3),
-            ("LEFTPADDING", (0, 0), (-1, -1), 8),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-        ]
-        if len(p1_table_rows) > 2:
-            p1_table_style.extend([
-                ("LINEABOVE", (0, -1), (-1, -1), 1.0, NAVY), # separating line
-                ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#FAF9F5")), # Total row background card tint
-                ("VALIGN", (0, -1), (-1, -1), "MIDDLE"),
-                ("TOPPADDING", (0, -1), (-1, -1), 6),
-                ("BOTTOMPADDING", (0, -1), (-1, -1), 6),
-            ])
-        p1_details_table.setStyle(TableStyle(p1_table_style))
-        story.append(p1_details_table)
-        
-        # Append contact block if it's the last active section
-        if last_active_part == 1:
-            append_contact_block(story, firm, tagline, firm_name_raw)
-
-    # ─────────────────────────────────────────────────────────────────────────
-    # Page 7: Part 2 - Regular Income Details
-    # ─────────────────────────────────────────────────────────────────────────
-    if len(parts_data[2]) > 0:
-        story.append(PageBreak())
-        
-        p2_name = next((a.get("Segment Name") for a in allocs if int(a.get("Part", 0)) == 2), "Stable Income")
-        left_flow = [
-            Paragraph("PART 2", style("PartGold2", fontName=FONT_SANS_BOLD, fontSize=9, leading=11, textColor=GOLD)),
-            Spacer(1, 2),
-            Paragraph(p2_name, style("PartTitle2", fontName=FONT_SERIF_BOLD, fontSize=20, leading=24, textColor=NAVY)),
-            Spacer(1, 4),
-            make_gold_bar(54, 3)
-        ]
-        right_flow = [
-            Spacer(1, 8),
-            Paragraph(format_rupee_words(p2_alloc), style("PartAlloc2", fontName=FONT_SERIF_BOLD, fontSize=18, leading=22, textColor=GOLD, alignment=2))
-        ]
-        p2_header_table = Table([[left_flow, right_flow]], colWidths=[W_net - 260, 260], hAlign='LEFT')
-        p2_header_table.setStyle(TableStyle([
-            ("VALIGN", (0, 0), (-1, -1), "TOP"),
-            ("LEFTPADDING", (0, 0), (-1, -1), 0),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-            ("TOPPADDING", (0, 0), (-1, -1), 0),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-        ]))
-        story.append(p2_header_table)
-        story.append(Spacer(1, 6))
-        
-        p2_obj = next((a.get("Objective", "") for a in allocs if int(a.get("Part", 0)) == 2), "Provides steady, regular payouts with lower price swings to protect your capital.")
-        story.append(Paragraph(f"<b>Objective:</b> {p2_obj}", BODY))
-        story.append(HRFlowable(width="100%", thickness=0.5, color=MID_GREY, spaceBefore=4, spaceAfter=10))
-        
-        p2_cols = [
-            Paragraph("RECOMMENDED PRODUCT", style_hdr_left),
-            Paragraph("STRATEGY & RATIONALE", style_hdr_left),
-            Paragraph("ALLOCATION", style_hdr_center)
-        ]
-        p2_table_rows = [p2_cols]
-        
-        # Calculate row count (add 1 if total row will be added)
-        p2_total_rows = len(parts_data[2]) + 1
-        if len(parts_data[2]) > 0:
-            p2_total_rows += 1
-            
-        padding_p2, fs_p2, lead_p2 = get_table_padding_and_fontsize(p2_total_rows)
-        style_p2 = ParagraphStyle("TableCellP2", parent=TABLE_CELL, fontSize=fs_p2, leading=lead_p2)
-        style_p2_bold = ParagraphStyle("TableCellBoldP2", parent=TABLE_CELL_BOLD, fontSize=fs_p2, leading=lead_p2)
-        style_p2_amount = ParagraphStyle("TableCellAmountP2", parent=TABLE_CELL_AMOUNT, fontSize=fs_p2, leading=lead_p2)
-        
-        for p in parts_data[2]:
-            amt_val = clean_float(p.get("Allocation (INR)", "0"))
-            amt_words = format_rupee_words(amt_val)
-                
-            p_cell = [
-                Paragraph(f"<b>{p.get('Product Name', '')}</b>", style_p2_bold),
-                Paragraph(f"<font color='#0A2540'><b>Net IRR: {p.get('Target Return', '')} (Pre-tax)</b></font>", style_p2_bold)
-            ]
-            
-            p2_table_rows.append([
-                p_cell,
-                Paragraph(p.get("Why Selected", "") or p.get("Core Rationale", ""), style_p2),
-                Paragraph(amt_words, style_p2_amount)
-            ])
-            
-        if len(p2_table_rows) == 1:
-            p2_table_rows.append([
-                Paragraph("No investments recommended in this segment", style_p2_bold),
-                Paragraph("Capital reserved for other assets", style_p2),
-                Paragraph("—", style_p2_amount)
-            ])
-        else:
-            # Add Total section allocation row
-            p2_table_rows.append([
-                Paragraph("<b>TOTAL SECTION ALLOCATION</b>", style_p2_bold),
-                Paragraph("", style_p2),
-                Paragraph(format_rupee_words(p2_alloc), style_p2_amount)
-            ])
-            
-        p2_details_table = Table(p2_table_rows, colWidths=[W_net * 0.27, W_net * 0.57, W_net * 0.16], hAlign='LEFT')
-        p2_table_style = [
-            ("BACKGROUND", (0, 0), (-1, 0), NAVY),
-            ("LINEABOVE", (0, 0), (-1, 0), 1.5, GOLD), # Top bounding gold border
-            ("LINEBELOW", (0, 0), (-1, 0), 1.5, GOLD),
-            ("LINEBELOW", (0, 1), (-1, -1), 0.5, colors.HexColor("#CBD5E1")), # Slate horizontal lines
-            ("LINEBELOW", (0, -1), (-1, -1), 1.5, GOLD), # Bottom bounding gold border
-            ("VALIGN", (0, 0), (-1, -1), "TOP"),
-            ("TOPPADDING", (0, 0), (-1, 0), 8),
-            ("BOTTOMPADDING", (0, 0), (-1, 0), 8),
-            ("TOPPADDING", (0, 1), (-1, -1), padding_p2 + 3),
-            ("BOTTOMPADDING", (0, 1), (-1, -1), padding_p2 + 3),
-            ("LEFTPADDING", (0, 0), (-1, -1), 8),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-        ]
-        if len(p2_table_rows) > 2:
-            p2_table_style.extend([
-                ("LINEABOVE", (0, -1), (-1, -1), 1.0, NAVY), # separating line
-                ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#FAF9F5")), # Total row background card tint
-                ("VALIGN", (0, -1), (-1, -1), "MIDDLE"),
-                ("TOPPADDING", (0, -1), (-1, -1), 6),
-                ("BOTTOMPADDING", (0, -1), (-1, -1), 6),
-            ])
-        p2_details_table.setStyle(TableStyle(p2_table_style))
-        story.append(p2_details_table)
-        
-        # Append contact block if it's the last active section
-        if last_active_part == 2:
-            append_contact_block(story, firm, tagline, firm_name_raw)
-
-    # ─────────────────────────────────────────────────────────────────────────
-    # Page 8: Part 3 - Hedged Growth Details
-    # ─────────────────────────────────────────────────────────────────────────
-    if len(parts_data[3]) > 0:
-        story.append(PageBreak())
-        
-        p3_name = next((a.get("Segment Name") for a in allocs if int(a.get("Part", 0)) == 3), "Balanced Growth")
-        left_flow = [
-            Paragraph("PART 3", style("PartGold3", fontName=FONT_SANS_BOLD, fontSize=9, leading=11, textColor=GOLD)),
-            Spacer(1, 2),
-            Paragraph(p3_name, style("PartTitle3", fontName=FONT_SERIF_BOLD, fontSize=20, leading=24, textColor=NAVY)),
-            Spacer(1, 4),
-            make_gold_bar(54, 3)
-        ]
-        right_flow = [
-            Spacer(1, 8),
-            Paragraph(format_rupee_words(p3_alloc), style("PartAlloc3", fontName=FONT_SERIF_BOLD, fontSize=18, leading=22, textColor=GOLD, alignment=2))
-        ]
-        p3_header_table = Table([[left_flow, right_flow]], colWidths=[W_net - 260, 260], hAlign='LEFT')
-        p3_header_table.setStyle(TableStyle([
-            ("VALIGN", (0, 0), (-1, -1), "TOP"),
-            ("LEFTPADDING", (0, 0), (-1, -1), 0),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-            ("TOPPADDING", (0, 0), (-1, -1), 0),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-        ]))
-        story.append(p3_header_table)
-        story.append(Spacer(1, 6))
-        
-        p3_obj = next((a.get("Objective", "") for a in allocs if int(a.get("Part", 0)) == 3), "Helps protect wealth during market volatility while still generating growth.")
-        story.append(Paragraph(f"<b>Objective:</b> {p3_obj}", BODY))
-        story.append(HRFlowable(width="100%", thickness=0.5, color=MID_GREY, spaceBefore=4, spaceAfter=8))
-        
-        sif_adv = (
-            "<b>The SIF Advantage:</b> These investments are designed to limit losses during market falls. "
-            "They help keep your overall portfolio steady when stock prices drop."
-        )
-        story.append(Paragraph(sif_adv, BODY_ITALIC))
-        story.append(Spacer(1, 8))
-        
-        p3_cols = [
-            Paragraph("RECOMMENDED PRODUCT", style_hdr_left),
-            Paragraph("STRATEGY & RATIONALE", style_hdr_left),
-            Paragraph("ALLOCATION", style_hdr_center)
-        ]
-        p3_table_rows = [p3_cols]
-        
-        # Calculate row count (add 1 if total row will be added)
-        p3_total_rows = len(parts_data[3]) + 1
-        if len(parts_data[3]) > 0:
-            p3_total_rows += 1
-            
-        padding_p3, fs_p3, lead_p3 = get_table_padding_and_fontsize(p3_total_rows)
-        style_p3 = ParagraphStyle("TableCellP3", parent=TABLE_CELL, fontSize=fs_p3, leading=lead_p3)
-        style_p3_bold = ParagraphStyle("TableCellBoldP3", parent=TABLE_CELL_BOLD, fontSize=fs_p3, leading=lead_p3)
-        style_p3_amount = ParagraphStyle("TableCellAmountP3", parent=TABLE_CELL_AMOUNT, fontSize=fs_p3, leading=lead_p3)
-        
-        for p in parts_data[3]:
-            amt_val = clean_float(p.get("Allocation (INR)", "0"))
-            amt_words = format_rupee_words(amt_val)
-                
-            p_cell = [
-                Paragraph(f"<b>{p.get('Product Name', '')}</b>", style_p3_bold),
-                Paragraph(f"<font color='#0A2540'><b>Exp. Return: {p.get('Target Return', '')}</b></font>", style_p3_bold)
-            ]
-            
-            p3_table_rows.append([
-                p_cell,
-                Paragraph(p.get("Why Selected", "") or p.get("Core Rationale", ""), style_p3),
-                Paragraph(amt_words, style_p3_amount)
-            ])
-            
-        if len(p3_table_rows) == 1:
-            p3_table_rows.append([
-                Paragraph("No investments recommended in this segment", style_p3_bold),
-                Paragraph("Capital reserved for other assets", style_p3),
-                Paragraph("—", style_p3_amount)
-            ])
-        else:
-            # Add Total section allocation row
-            p3_table_rows.append([
-                Paragraph("<b>TOTAL SECTION ALLOCATION</b>", style_p3_bold),
-                Paragraph("", style_p3),
-                Paragraph(format_rupee_words(p3_alloc), style_p3_amount)
-            ])
-            
-        p3_details_table = Table(p3_table_rows, colWidths=[W_net * 0.27, W_net * 0.57, W_net * 0.16], hAlign='LEFT')
-        p3_table_style = [
-            ("BACKGROUND", (0, 0), (-1, 0), NAVY),
-            ("LINEABOVE", (0, 0), (-1, 0), 1.5, GOLD), # Top bounding gold border
-            ("LINEBELOW", (0, 0), (-1, 0), 1.5, GOLD),
-            ("LINEBELOW", (0, 1), (-1, -1), 0.5, colors.HexColor("#CBD5E1")), # Slate horizontal lines
-            ("LINEBELOW", (0, -1), (-1, -1), 1.5, GOLD), # Bottom bounding gold border
-            ("VALIGN", (0, 0), (-1, -1), "TOP"),
-            ("TOPPADDING", (0, 0), (-1, 0), 8),
-            ("BOTTOMPADDING", (0, 0), (-1, 0), 8),
-            ("TOPPADDING", (0, 1), (-1, -1), padding_p3 + 3),
-            ("BOTTOMPADDING", (0, 1), (-1, -1), padding_p3 + 3),
-            ("LEFTPADDING", (0, 0), (-1, -1), 8),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-        ]
-        if len(p3_table_rows) > 2:
-            p3_table_style.extend([
-                ("LINEABOVE", (0, -1), (-1, -1), 1.0, NAVY), # separating line
-                ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#FAF9F5")), # Total row background card tint
-                ("VALIGN", (0, -1), (-1, -1), "MIDDLE"),
-                ("TOPPADDING", (0, -1), (-1, -1), 6),
-                ("BOTTOMPADDING", (0, -1), (-1, -1), 6),
-            ])
-        p3_details_table.setStyle(TableStyle(p3_table_style))
-        story.append(p3_details_table)
-        story.append(Spacer(1, 8))
-        
-        swp_txt = "<b>Income Generation via SWP:</b> A Regular Income (Monthly/Quarterly) can be created via Systematic Withdrawal Plans (SWP)."
-        story.append(Paragraph(swp_txt, BODY_BOLD))
-        
-        # Append contact block if it's the last active section
-        if last_active_part == 3:
-            append_contact_block(story, firm, tagline, firm_name_raw)
-    if len(parts_data[4]) > 0:
-        story.append(PageBreak())
-        
-        p4_name = next((a.get("Segment Name") for a in allocs if int(a.get("Part", 0)) == 4), "Wealth Creation")
-        left_flow = [
-            Paragraph("PART 4", style("PartGold4", fontName=FONT_SANS_BOLD, fontSize=9, leading=11, textColor=GOLD)),
-            Spacer(1, 2),
-            Paragraph(p4_name, style("PartTitle4", fontName=FONT_SERIF_BOLD, fontSize=20, leading=24, textColor=NAVY)),
-            Spacer(1, 4),
-            make_gold_bar(54, 3)
-        ]
-        right_flow = [
-            Spacer(1, 8),
-            Paragraph(format_rupee_words(p4_alloc), style("PartAlloc4", fontName=FONT_SERIF_BOLD, fontSize=18, leading=22, textColor=GOLD, alignment=2))
-        ]
-        p4_header_table = Table([[left_flow, right_flow]], colWidths=[W_net - 260, 260], hAlign='LEFT')
-        p4_header_table.setStyle(TableStyle([
-            ("VALIGN", (0, 0), (-1, -1), "TOP"),
-            ("LEFTPADDING", (0, 0), (-1, -1), 0),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-            ("TOPPADDING", (0, 0), (-1, -1), 0),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-        ]))
-        story.append(p4_header_table)
-        story.append(Spacer(1, 6))
-        
-        p4_obj = next((a.get("Objective", "") for a in allocs if int(a.get("Part", 0)) == 4), "Focused on long-term wealth creation through equity investments.")
-        story.append(Paragraph(f"<b>Objective:</b> {p4_obj}", BODY))
-        story.append(HRFlowable(width="100%", thickness=0.5, color=MID_GREY, spaceBefore=4, spaceAfter=10))
-        
-        # Categorize Part 4 products into PMS vs Mutual Funds
+        # Separate products into PMS vs Mutual Funds
         pms_products = []
         mf_products = []
-        for p in parts_data[4]:
+        for p in pt_products:
             ac = str(p.get("Asset Class", "")).lower()
             pn = str(p.get("Product Name", "")).lower()
             is_pms = (
@@ -1580,23 +1486,23 @@ def generate_pdf_from_data(data, output_path=None):
             else:
                 mf_products.append(p)
                 
-        # Section I: PMS (Side-by-side) - Render ONLY if PMS products exist
+        # Render PMS cards if any exist
         if len(pms_products) > 0:
             pms_alloc_sum = sum(clean_float(p.get("Allocation (INR)", "0")) for p in pms_products)
-            pms_alloc_str = format_rupee_words(pms_alloc_sum).replace("Rupees ", "").replace("₹ ", "")
+            pms_alloc_str = format_rupee_words(pms_alloc_sum).replace("Rupees ", "")
+            pms_alloc_str = pms_alloc_str.replace('<font name="DejaVuSans-Bold">₹</font> ', '')
+            pms_alloc_str = pms_alloc_str.replace('₹ ', '').replace('Rs. ', '')
             
-            story.append(Paragraph(f"I. Portfolio Management Services (PMS) - ₹ {pms_alloc_str}", TITLE_SMALL))
+            story.append(Paragraph(f"Portfolio Management Services (PMS) - <font name=\"DejaVuSans-Bold\">₹</font> {pms_alloc_str}", TITLE_SMALL))
             story.append(Spacer(1, 5))
             
-            # Format asymmetric PMS cards
             card_tables = []
             for i, p in enumerate(pms_products):
                 amt_val = clean_float(p.get("Allocation (INR)", "0"))
                 amt_words = format_rupee_words(amt_val)
                 
-                # Styles for card text
                 pms_title_style = ParagraphStyle(
-                    f"PmsCardTitle_{i}",
+                    f"PmsCardTitle_{pt}_{i}",
                     fontName=FONT_SANS_BOLD,
                     fontSize=9.5,
                     leading=13,
@@ -1604,7 +1510,7 @@ def generate_pdf_from_data(data, output_path=None):
                 )
                 
                 pms_alloc_style = ParagraphStyle(
-                    f"PmsCardAlloc_{i}",
+                    f"PmsCardAlloc_{pt}_{i}",
                     fontName=FONT_SANS_BOLD,
                     fontSize=8.5,
                     leading=11,
@@ -1622,10 +1528,9 @@ def generate_pdf_from_data(data, output_path=None):
                     Spacer(1, 4),
                     Paragraph(pms_alloc_text, pms_alloc_style),
                     Spacer(1, 6),
-                    Paragraph(p.get('Why Selected', '') or p.get('Core Rationale', ''), BODY)
+                    Paragraph(p.get("detailed_rationale") or p.get("Why Selected") or p.get("Core Rationale") or "", BODY)
                 ]
                 
-                # Alternate styles for cards (Navy border + light blue bg vs Gold border + cream bg)
                 border_color = NAVY if (i % 2 == 0) else GOLD
                 bg_color = colors.HexColor("#F0F4F8") if (i % 2 == 0) else colors.HexColor("#FAF7F0")
                 
@@ -1641,45 +1546,51 @@ def generate_pdf_from_data(data, output_path=None):
                 card_tables.append(t_card)
                 
             if len(card_tables) >= 2:
-                pms_table = Table([[card_tables[0], "", card_tables[1]]], colWidths=[W_net * 0.48, W_net * 0.04, W_net * 0.48], hAlign='LEFT')
-                pms_table.setStyle(TableStyle([
-                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                    ("LEFTPADDING", (0, 0), (-1, -1), 0),
-                    ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-                    ("TOPPADDING", (0, 0), (-1, -1), 0),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-                ]))
-                story.append(pms_table)
+                for idx_card in range(0, len(card_tables), 2):
+                    if idx_card + 1 < len(card_tables):
+                        pair_table = Table([[card_tables[idx_card], "", card_tables[idx_card+1]]], colWidths=[W_net * 0.48, W_net * 0.04, W_net * 0.48], hAlign='LEFT')
+                        pair_table.setStyle(TableStyle([
+                            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                            ("TOPPADDING", (0, 0), (-1, -1), 0),
+                            ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+                        ]))
+                        story.append(pair_table)
+                        story.append(Spacer(1, 10))
+                    else:
+                        story.append(card_tables[idx_card])
+                        story.append(Spacer(1, 10))
             elif len(card_tables) == 1:
                 story.append(card_tables[0])
+                story.append(Spacer(1, 10))
                 
             story.append(Spacer(1, 15))
             
-        # Section II: Mutual Funds - Render ONLY if Mutual Funds products exist
+        # Render Mutual Funds if any exist
         if len(mf_products) > 0:
             mf_alloc_sum = sum(clean_float(p.get("Allocation (INR)", "0")) for p in mf_products)
-            mf_alloc_str = format_rupee_words(mf_alloc_sum).replace("Rupees ", "").replace("₹ ", "")
-            story.append(Paragraph(f"II. High-Conviction Mutual Funds - ₹ {mf_alloc_str}", TITLE_SMALL))
-            story.append(Spacer(1, 5))
+            mf_alloc_str = format_rupee_words(mf_alloc_sum).replace("Rupees ", "")
+            mf_alloc_str = mf_alloc_str.replace('<font name="DejaVuSans-Bold">₹</font> ', '')
+            mf_alloc_str = mf_alloc_str.replace('₹ ', '').replace('Rs. ', '')
             
-            # Table columns: FUND & MANAGER PEDIGREE, STRATEGY RATIONALE, ALLOCATION
+            if len(pms_products) > 0:
+                story.append(Paragraph(f"Mutual Funds - <font name=\"DejaVuSans-Bold\">₹</font> {mf_alloc_str}", TITLE_SMALL))
+                story.append(Spacer(1, 5))
+                
             mf_cols = [
                 Paragraph("RECOMMENDED PRODUCT", style_hdr_left),
                 Paragraph("STRATEGY & RATIONALE", style_hdr_left),
                 Paragraph("ALLOCATION", style_hdr_center)
             ]
-            
             mf_table_rows = [mf_cols]
             
-            # Calculate row count (add 1 if total row will be added)
-            mf_total_rows = len(mf_products) + 1
-            if len(mf_products) > 0:
-                mf_total_rows += 1
-                
+            mf_total_rows = len(mf_products) + 2
             padding_mf, fs_mf, lead_mf = get_table_padding_and_fontsize(mf_total_rows)
-            style_mf = ParagraphStyle("TableCellMF", parent=TABLE_CELL, fontSize=fs_mf, leading=lead_mf)
-            style_mf_bold = ParagraphStyle("TableCellBoldMF", parent=TABLE_CELL_BOLD, fontSize=fs_mf, leading=lead_mf)
-            style_mf_amount = ParagraphStyle("TableCellAmountMF", parent=TABLE_CELL_AMOUNT, fontSize=fs_mf, leading=lead_mf)
+            
+            style_mf = ParagraphStyle(f"TableCellMF_{pt}", parent=TABLE_CELL, fontSize=fs_mf, leading=lead_mf)
+            style_mf_bold = ParagraphStyle(f"TableCellBoldMF_{pt}", parent=TABLE_CELL_BOLD, fontSize=fs_mf, leading=lead_mf)
+            style_mf_amount = ParagraphStyle(f"TableCellAmountMF_{pt}", parent=TABLE_CELL_AMOUNT, fontSize=fs_mf, leading=lead_mf)
             
             for p in mf_products:
                 amt_val = clean_float(p.get("Allocation (INR)", "0"))
@@ -1691,30 +1602,30 @@ def generate_pdf_from_data(data, output_path=None):
                 asset_class_str = p.get("Asset Class", "")
                 tr_val = p.get("Target Return", "")
                 if tr_val:
-                    p_cell.append(Paragraph(f"<font color='#0A2540'><b>{asset_class_str} &nbsp;|&nbsp; Exp. Return: {tr_val}</b></font>", style_mf_bold))
+                    irr_label = "Net IRR" if "debt" in p_name.lower() or "liquid" in p_name.lower() or "corporate bond" in p_name.lower() or "arbitrage" in p_name.lower() else "Exp. Return"
+                    p_cell.append(Paragraph(f"<font color='#0A2540'><b>{asset_class_str} &nbsp;|&nbsp; {irr_label}: {tr_val}</b></font>", style_mf_bold))
                 else:
                     p_cell.append(Paragraph(f"<font color='#0A2540'><b>{asset_class_str}</b></font>", style_mf_bold))
                 
                 mf_table_rows.append([
                     p_cell,
-                    Paragraph(p.get("Why Selected", "") or p.get("Core Rationale", ""), style_mf),
+                    Paragraph(p.get("detailed_rationale") or p.get("Why Selected") or p.get("Core Rationale") or "", style_mf),
                     Paragraph(amt_words, style_mf_amount)
                 ])
                 
-            if len(mf_products) > 0:
-                mf_table_rows.append([
-                    Paragraph("<b>TOTAL MUTUAL FUND ALLOCATION</b>", style_mf_bold),
-                    Paragraph("", style_mf),
-                    Paragraph(format_rupee_words(mf_alloc_sum), style_mf_amount)
-                ])
-                
+            mf_table_rows.append([
+                Paragraph("<b>TOTAL SECTION ALLOCATION</b>", style_mf_bold),
+                Paragraph("", style_mf),
+                Paragraph(format_rupee_words(mf_alloc_sum), style_mf_amount)
+            ])
+            
             mf_table = Table(mf_table_rows, colWidths=[W_net * 0.27, W_net * 0.57, W_net * 0.16], hAlign='LEFT', repeatRows=1)
             mf_table_style = [
                 ("BACKGROUND", (0, 0), (-1, 0), NAVY),
-                ("LINEABOVE", (0, 0), (-1, 0), 1.5, GOLD), # Top bounding gold border
+                ("LINEABOVE", (0, 0), (-1, 0), 1.5, GOLD),
                 ("LINEBELOW", (0, 0), (-1, 0), 1.5, GOLD),
-                ("LINEBELOW", (0, 1), (-1, -1), 0.5, colors.HexColor("#CBD5E1")), # Slate horizontal lines
-                ("LINEBELOW", (0, -1), (-1, -1), 1.5, GOLD), # Bottom bounding gold border
+                ("LINEBELOW", (0, 1), (-1, -1), 0.5, colors.HexColor("#CBD5E1")),
+                ("LINEBELOW", (0, -1), (-1, -1), 1.5, GOLD),
                 ("VALIGN", (0, 0), (-1, -1), "TOP"),
                 ("TOPPADDING", (0, 0), (-1, 0), 8),
                 ("BOTTOMPADDING", (0, 0), (-1, 0), 8),
@@ -1725,8 +1636,8 @@ def generate_pdf_from_data(data, output_path=None):
             ]
             if len(mf_table_rows) > 2:
                 mf_table_style.extend([
-                    ("LINEABOVE", (0, -1), (-1, -1), 1.0, NAVY), # separating line
-                    ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#FAF9F5")), # Total row background card tint
+                    ("LINEABOVE", (0, -1), (-1, -1), 1.0, NAVY),
+                    ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#FAF9F5")),
                     ("VALIGN", (0, -1), (-1, -1), "MIDDLE"),
                     ("TOPPADDING", (0, -1), (-1, -1), 6),
                     ("BOTTOMPADDING", (0, -1), (-1, -1), 6),
@@ -1734,8 +1645,13 @@ def generate_pdf_from_data(data, output_path=None):
             mf_table.setStyle(TableStyle(mf_table_style))
             story.append(mf_table)
             
+        if "arbitrage" in p_name.lower() or "hybrid" in p_name.lower():
+            story.append(Spacer(1, 8))
+            swp_txt = "<b>Income Generation via SWP:</b> A Regular Income (Monthly/Quarterly) can be created via Systematic Withdrawal Plans (SWP) from hybrid/arbitrage funds."
+            story.append(Paragraph(swp_txt, BODY_BOLD))
+            
         # Append contact block if it's the last active section
-        if last_active_part == 4:
+        if pt == last_active_part:
             append_contact_block(story, firm, tagline, firm_name_raw)
 
 
@@ -1746,7 +1662,7 @@ def generate_pdf_from_data(data, output_path=None):
     
     arn = firm.get("AMFI ARN", "ARN-286847")
     discl_text = (
-        f"<b>{firm_name_raw}</b> is an AMFI-registered Mutual Fund & Specialized Investment "
+        f"<b>SAMARTH WEALTH PVT. LTD.</b> is an AMFI-registered Mutual Fund & Specialized Investment "
         f"Fund Distributor ({arn}). All Mutual Funds, SIF, AIF, and PMS investments are subject to market "
         f"risks. Please read all scheme-related documents carefully before investing. Past performance "
         f"is not indicative of future results. Insurance is the subject matter of solicitation. For more details on "
@@ -1775,7 +1691,7 @@ def generate_pdf_from_data(data, output_path=None):
     
     story.append(Spacer(1, 20))
     copy_style = style("DisCopy", fontName=FONT_SANS, fontSize=8.5, leading=11, textColor=DARK_GREY)
-    story.append(Paragraph(f"© {datetime.now().year} {firm_name_raw}. All Rights Reserved.", copy_style))
+    story.append(Paragraph(f"© {datetime.now().year} {firm_name_raw.rstrip('.')}. All Rights Reserved.", copy_style))
 
     # Build the document
     doc.build(story, onFirstPage=draw_cover_bg, onLaterPages=draw_later_bg)
