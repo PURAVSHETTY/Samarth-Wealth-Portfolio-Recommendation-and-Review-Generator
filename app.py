@@ -255,8 +255,10 @@ def upload_file():
             os.remove(filepath)
         return jsonify({"error": f"Failed to parse Excel spreadsheet: {str(e)}"}), 500
 
+print("[STARTUP] /generate-proposal route is being registered", flush=True)
 @app.route("/generate-proposal", methods=["POST"])
 def generate_proposal_route():
+    print("[ROUTE ENTRY] generate_proposal_route() was called", flush=True)
     try:
         print_step_log("[STEP 1] Request received")
         print(f"[MEMORY PROFILE] 1. Request received: {get_memory_usage():.2f} MB")
@@ -432,7 +434,11 @@ def generate_proposal_route():
     except Exception as e:
         import traceback
         traceback.print_exc()
-        raise e
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }), 500
 
 @app.route("/api/download_pdf", methods=["GET"])
 def download_pdf():
