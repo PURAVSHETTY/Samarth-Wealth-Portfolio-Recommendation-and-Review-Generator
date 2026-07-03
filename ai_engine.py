@@ -1858,8 +1858,8 @@ def call_llm_api(prompt, api_key, temperature=0.95):
         }
 
         def _do_gemini_request():
-            """Performs a single streaming Gemini POST and returns the assembled text."""
-            resp = requests.post(url, headers=headers, json=payload, timeout=90, stream=True)
+            """Performs a single blocking Gemini POST and returns the parsed text."""
+            resp = requests.post(url, headers=headers, json=payload, timeout=90)
             if resp.status_code == 429:
                 print("[AI Engine ERROR] Quota/Rate-limit exceeded (HTTP 429)")
                 resp.raise_for_status()
@@ -1874,14 +1874,8 @@ def call_llm_api(prompt, api_key, temperature=0.95):
                 resp.raise_for_status()
             resp.raise_for_status()
 
-            # Accumulate streamed response chunks
-            raw_chunks = []
-            for chunk in resp.iter_content(chunk_size=8192):
-                if chunk:
-                    raw_chunks.append(chunk)
-            raw_bytes = b"".join(raw_chunks)
-            print(f"[AI Engine] Response size: {len(raw_bytes)} bytes")
-            res_json = json.loads(raw_bytes.decode("utf-8"))
+            print(f"[AI Engine] Response size: {len(resp.content)} bytes")
+            res_json = resp.json()
 
             candidates = res_json.get("candidates", [])
             if candidates:
@@ -1895,7 +1889,7 @@ def call_llm_api(prompt, api_key, temperature=0.95):
             raise ValueError(f"Unexpected Gemini response: {res_json}")
 
         try:
-            print("[AI Engine] Sending Gemini request (stream=True)...")
+            print("[AI Engine] Sending Gemini request...")
             text_out = _do_gemini_request()
             print(f"[AI Engine] Response text size: {len(text_out)} chars")
             return text_out
