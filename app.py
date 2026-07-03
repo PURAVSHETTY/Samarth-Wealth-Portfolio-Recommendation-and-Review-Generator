@@ -56,6 +56,41 @@ class _StderrLogger:
 sys.stderr = _StderrLogger()
 
 
+def print_step_log(step_name):
+    import os
+    import time
+    from datetime import datetime
+    import sys
+    
+    rss_mb = 0.0
+    try:
+        if os.name == 'nt':
+            import subprocess
+            import csv
+            pid = os.getpid()
+            out = subprocess.check_output(['tasklist', '/FI', f'PID eq {pid}', '/FO', 'CSV', '/NH']).decode('utf-8', errors='ignore')
+            reader = csv.reader([out.strip()])
+            row = next(reader)
+            if len(row) >= 5:
+                mem_str = row[4].replace(' K', '').replace(' KB', '').replace(',', '').strip()
+                rss_mb = float(mem_str) / 1024
+        else:
+            try:
+                with open('/proc/self/status', 'r') as f:
+                    for line in f:
+                        if line.startswith('VmRSS:'):
+                            rss_mb = float(line.split()[1]) / 1024
+                            break
+            except Exception:
+                import resource
+                rss_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
+    except Exception:
+        pass
+        
+    print(f"{step_name} | RAM: {rss_mb:.2f} MB | Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')}", flush=True)
+    sys.stdout.flush()
+
+
 def get_memory_usage():
     try:
         import os
@@ -223,6 +258,7 @@ def upload_file():
 @app.route("/generate-proposal", methods=["POST"])
 def generate_proposal_route():
     try:
+        print_step_log("[STEP 1] Request received")
         print(f"[MEMORY PROFILE] 1. Request received: {get_memory_usage():.2f} MB")
         print("[DEBUG] Request received.")
         print("\n[DEBUG] ==================================================")
@@ -245,15 +281,24 @@ def generate_proposal_route():
                 print(f"[DEBUG ERROR] Referenced Excel file not found: {filepath}")
                 return jsonify({"error": "Referenced Excel file not found. Please upload again."}), 404
             print(f"[MEMORY PROFILE] 2. Excel loaded: {get_memory_usage():.2f} MB")
-            print(f"[DEBUG] Parsing Excel file: {filepath} for workflow: {workflow}")
+            print_step_log("[STEP 2] Excel parsing started")
             if workflow == "review":
                 from review_engine import parse_review_excel
                 proposal_data = parse_review_excel(filepath)
             else:
-                proposal_data = parse_messy_excel(filepath)
+                try:
+                    proposal_data = parse_messy_excel(filepath)
+                except Exception as e:
+                    import traceback
+                    print("[ERROR] Failure occurred at [STEP 2]", flush=True)
+                    traceback.print_exc()
+                    raise e
+            print_step_log("[STEP 3] Excel parsing completed")
             print(f"[MEMORY PROFILE] 3. Excel parsed: {get_memory_usage():.2f} MB")
             print("[DEBUG] Excel parsed successfully.")
         else:
+            print_step_log("[STEP 2] Excel parsing started")
+            print_step_log("[STEP 3] Excel parsing completed")
             print(f"[MEMORY PROFILE] 2. Excel loaded (pre-parsed): {get_memory_usage():.2f} MB")
             print(f"[MEMORY PROFILE] 3. Excel parsed (pre-parsed): {get_memory_usage():.2f} MB")
             print("[DEBUG] Excel parsed successfully.")
@@ -308,11 +353,15 @@ def generate_proposal_route():
             print("[DEBUG] AI API Key detected. Engaging Gemini generative model.")
             
         # Run AI Optimization
-        print("[DEBUG] AI generation started.")
-        print("[DEBUG] AI processing started (auto-allocating funds and writing rationales)...")
-        ai_portfolio = generate_ai_portfolio(client_data, fund_data, api_key=api_key)
-        print("[DEBUG] AI processing completed successfully.")
-        print("[DEBUG] AI generation completed.")
+        print_step_log("[STEP 4] AI generation started")
+        try:
+            ai_portfolio = generate_ai_portfolio(client_data, fund_data, api_key=api_key)
+        except Exception as e:
+            import traceback
+            print("[ERROR] Failure occurred at [STEP 4]", flush=True)
+            traceback.print_exc()
+            raise e
+        print_step_log("[STEP 5] AI generation completed")
         print("[DEBUG] AI response received. Merging with firm settings and profiles.")
         
         merged_data = {
@@ -344,15 +393,23 @@ def generate_proposal_route():
         if not merged_data.get("products") or len(merged_data["products"]) == 0:
             raise ValueError("Parser failed: No investment products detected.")
         
+        print_step_log("[STEP 6] Proposal data prepared")
+        
         # Generate the PDF file inside uploads/
         pdf_filename = f"Proposal_{uuid.uuid4().hex[:8]}.pdf"
         pdf_path = os.path.join(UPLOADS_DIR, pdf_filename)
         
         print("[DEBUG] proposal_engine.py started.")
         print(f"[MEMORY PROFILE] 7. Before PDF generation: {get_memory_usage():.2f} MB")
-        print(f"[DEBUG] PDF generation started. Saving file to path: {pdf_path}")
-        
-        generate_pdf_from_data(merged_data, output_path=pdf_path)
+        print_step_log("[STEP 7] PDF generation started")
+        try:
+            generate_pdf_from_data(merged_data, output_path=pdf_path)
+        except Exception as e:
+            import traceback
+            print("[ERROR] Failure occurred at [STEP 7]", flush=True)
+            traceback.print_exc()
+            raise e
+        print_step_log("[STEP 11] PDF generation completed")
         print(f"[MEMORY PROFILE] 9. After PDF generation completes: {get_memory_usage():.2f} MB")
         print(f"[DEBUG] PDF generation completed. Output file: {pdf_filename}")
         print("[DEBUG] PDF generated successfully.")
@@ -375,11 +432,7 @@ def generate_proposal_route():
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return jsonify({
-            "success": False,
-            "error": str(e),
-            "traceback": traceback.format_exc()
-        }), 500
+        raise e
 
 @app.route("/api/download_pdf", methods=["GET"])
 def download_pdf():
@@ -392,12 +445,21 @@ def download_pdf():
     if os.path.exists(filepath) and os.path.isfile(filepath):
         print(f"[DEBUG] Serving file attachment: {filepath}")
         print("[DEBUG] send_file() executed.")
-        return send_file(
-            filepath,
-            mimetype="application/pdf",
-            as_attachment=True,
-            download_name=filename
-        )
+        print_step_log("[STEP 12] Preparing send_file()")
+        try:
+            resp = send_file(
+                filepath,
+                mimetype="application/pdf",
+                as_attachment=True,
+                download_name=filename
+            )
+        except Exception as e:
+            import traceback
+            print("[ERROR] Failure occurred at [STEP 12]", flush=True)
+            traceback.print_exc()
+            raise e
+        print_step_log("[STEP 13] Request completed successfully")
+        return resp
     else:
         print(f"[DEBUG ERROR] PDF file not found: {filepath}")
         return jsonify({"error": "PDF file not found or has expired."}), 404
