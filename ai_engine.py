@@ -1775,52 +1775,14 @@ def _calculate_allocations(cleaned_products, corpus, profile=None):
 _SELECTED_GEMINI_MODEL = None
 
 def get_supported_gemini_model(api_key):
+    """Returns the Gemini model to use. Uses cached value or falls back to gemini-2.5-flash.
+    Skips the probe HTTP call to avoid an extra round-trip on every request."""
     global _SELECTED_GEMINI_MODEL
     if _SELECTED_GEMINI_MODEL:
         return _SELECTED_GEMINI_MODEL
-    
-    # Try gemini-2.5-flash as default stable version
-    default_model = "gemini-2.5-flash"
-    try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
-        response = requests.get(url, timeout=10)
-        if response.status_code == 200:
-            models_data = response.json().get("models", [])
-            supported_models = []
-            for m in models_data:
-                name = m.get("name", "")
-                methods = m.get("supportedGenerationMethods", [])
-                if "generateContent" in methods and "models/gemini" in name:
-                    model_id = name.replace("models/", "")
-                    supported_models.append(model_id)
-            
-            # Select the best flash model
-            clean_flash_models = [
-                m for m in supported_models 
-                if "flash" in m and not any(x in m for x in ["preview", "tts", "image", "lite", "robotics"])
-            ]
-            if clean_flash_models:
-                # Prioritize stable releases
-                for m in ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]:
-                    if m in clean_flash_models:
-                        _SELECTED_GEMINI_MODEL = m
-                        return m
-                _SELECTED_GEMINI_MODEL = clean_flash_models[0]
-                return _SELECTED_GEMINI_MODEL
-            
-            flash_models = [m for m in supported_models if "flash" in m]
-            if flash_models:
-                _SELECTED_GEMINI_MODEL = flash_models[0]
-                return _SELECTED_GEMINI_MODEL
-            
-            if supported_models:
-                _SELECTED_GEMINI_MODEL = supported_models[0]
-                return _SELECTED_GEMINI_MODEL
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        print(f"[AI Engine REST] Failed to dynamically list models: {e}")
-    return default_model
+    # Pin to the best stable flash model directly — avoids a second API round-trip.
+    _SELECTED_GEMINI_MODEL = "gemini-2.5-flash"
+    return _SELECTED_GEMINI_MODEL
 
 def call_llm_api(prompt, api_key, temperature=0.95):
     """
@@ -1881,69 +1843,73 @@ def call_llm_api(prompt, api_key, temperature=0.95):
                 raise e2
                 
     else:
-        # Dynamically determine the best supported model name
         model_name = get_supported_gemini_model(api_key)
         print(f"[AI Engine] AI request started (Gemini model: {model_name})")
-        
-        # Define the actual endpoint URL, headers, and payload for Gemini REST API
+        print(f"[AI Engine] Prompt size: {len(prompt)} chars")
+
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
-        headers = {
-            "Content-Type": "application/json"
-        }
+        headers = {"Content-Type": "application/json"}
         payload = {
-            "contents": [
-                {
-                    "parts": [
-                        {"text": prompt}
-                    ]
-                }
-            ],
+            "contents": [{"parts": [{"text": prompt}]}],
             "generationConfig": {
                 "temperature": temperature,
                 "responseMimeType": "application/json"
             }
         }
-        
-        reached_google = False
-        try:
-            response = requests.post(url, headers=headers, json=payload, timeout=45)
-            print("[AI Engine] Request sent successfully")
-            reached_google = True
-            status_code = response.status_code
-            
-            if status_code == 200:
-                print("[AI Engine] Response received successfully")
-            else:
-                print(f"[AI Engine ERROR] HTTP {status_code} received from Gemini API")
-                
-            if status_code == 429:
-                print("[AI Engine ERROR] Quota/Rate-limit restrictions exceeded (HTTP 429)")
-                response.raise_for_status()
-            elif status_code == 400:
+
+        def _do_gemini_request():
+            """Performs a single streaming Gemini POST and returns the assembled text."""
+            resp = requests.post(url, headers=headers, json=payload, timeout=90, stream=True)
+            if resp.status_code == 429:
+                print("[AI Engine ERROR] Quota/Rate-limit exceeded (HTTP 429)")
+                resp.raise_for_status()
+            elif resp.status_code == 400:
                 print("[AI Engine ERROR] Bad Request (HTTP 400)")
-                response.raise_for_status()
-            elif status_code == 403:
+                resp.raise_for_status()
+            elif resp.status_code == 403:
                 print("[AI Engine ERROR] Forbidden (HTTP 403) - verify API key")
-                response.raise_for_status()
-            elif status_code == 404:
+                resp.raise_for_status()
+            elif resp.status_code == 404:
                 print("[AI Engine ERROR] Not Found (HTTP 404) - endpoint or model unavailable")
-                response.raise_for_status()
-                
-            response.raise_for_status()
-            res_json = response.json()
-            
+                resp.raise_for_status()
+            resp.raise_for_status()
+
+            # Accumulate streamed response chunks
+            raw_chunks = []
+            for chunk in resp.iter_content(chunk_size=8192):
+                if chunk:
+                    raw_chunks.append(chunk)
+            raw_bytes = b"".join(raw_chunks)
+            print(f"[AI Engine] Response size: {len(raw_bytes)} bytes")
+            res_json = json.loads(raw_bytes.decode("utf-8"))
+
             candidates = res_json.get("candidates", [])
             if candidates:
-                content = candidates[0].get("content", {})
-                parts = content.get("parts", [])
+                parts = candidates[0].get("content", {}).get("parts", [])
                 if parts:
                     text_out = parts[0].get("text", "")
                     if text_out:
                         print("[AI Engine] Response parsed successfully")
                         return text_out
-                        
-            print("[AI Engine ERROR] Gemini returned an empty response or unexpected structure")
-            raise ValueError(f"Unexpected response format from Gemini: {res_json}")
+            print("[AI Engine ERROR] Gemini returned empty/unexpected structure")
+            raise ValueError(f"Unexpected Gemini response: {res_json}")
+
+        try:
+            print("[AI Engine] Sending Gemini request (stream=True)...")
+            text_out = _do_gemini_request()
+            print(f"[AI Engine] Response text size: {len(text_out)} chars")
+            return text_out
+        except requests.exceptions.Timeout:
+            print("[AI Engine] Gemini request timed out. Retrying once...")
+            try:
+                text_out = _do_gemini_request()
+                print(f"[AI Engine] Retry succeeded. Response text size: {len(text_out)} chars")
+                return text_out
+            except Exception as retry_err:
+                import traceback
+                traceback.print_exc()
+                print(f"[AI Engine ERROR] Gemini retry also failed: {retry_err}")
+                raise retry_err
         except Exception as e:
             import traceback
             traceback.print_exc()
@@ -2227,150 +2193,67 @@ def generate_ai_portfolio(client_data, fund_data, api_key=None):
         briefing_instruction_1 = " (Since the client has already provided their own Executive Briefing in the Excel, do NOT write a new one; simply return an empty string for this field.)" if excel_exec_brief else ""
         briefing_instruction_2 = " (Since the client has already provided their own Portfolio Thesis & Market Overview in the Excel, do NOT write a new one; simply return an empty string for this field.)" if excel_thesis else ""
 
-        prompt = f"""
-        You are a premium private wealth management advisor at a top-tier institutional firm.
-        Generate a fully customized, professional investment portfolio proposal for this client.
-        
-        SYSTEM RULES & INSTRUCTION:
-        1. NO REPETITIVE STRUCTURES: Different funds must use completely different writing structures and sentence flows. Do NOT use the same paragraph framework across different funds.
-        2. NO BOILERPLATE OPENINGS: Do not start any detailed_rationale with "Selected to align with the client's objective...", "The investment strategy...", "It focuses on...", or similar repetitive/canned openings. Every opening sentence must be written independently.
-        3. DYNAMIC ORDERING: Do not force every detailed_rationale to contain the same sections in the same order. For some funds, discuss the strategy first; for others, discuss suitability; for others, discuss market positioning or risk buffer first.
-        4. CATEGORY-SPECIFIC COMMENTARY: Discuss actual, real-world fund characteristics in the detailed_rationale:
-           - Balanced Advantage Funds: Explain dynamic equity-debt allocation, active shifts between equity and debt based on valuations, and hedging.
-           - Multi Asset Funds: Explain diversification across uncorrelated asset classes (shares, debt, gold, silver, arbitrage).
-           - Aggressive Hybrid Funds: Explain the blended equity participation with a structural debt stability cushion.
-           - Small Cap Funds: Explain high-growth emerging business exposure, niche market leaders, and accepting higher volatility/fluctuations.
-           - Multicap Funds: Explain the structured, mandatory allocation across market capitalizations (large, mid, and small cap companies).
-           - Arbitrage Funds: Discuss tax-efficient market-neutral arbitrage capturing spot-future spreads.
-           - Liquid/Money Market: Focus on capital preservation, overnight safety reserve, and immediate liquidity.
-        5. WEALTH MANAGER PERSONA: Write as if each commentary was custom-written by an independent private banker or wealth manager. Avoid clinical, robotic, or template-based structures.
-        6. RANDOMIZE ALL NARRATIVE VARIABLES: Randomize the opening sentence style, sentence order, sentence count (e.g. some detailed rationales should have 2 sentences, others 3 sentences), and explanation style.
-        7. FORCE HETEROGENEITY: Verify that two funds from different categories (and even within the same category) do not share the same paragraph template or grammatical construction.
-        8. For each recommended product in your response list, select a DIFFERENT advisory tone style randomly from the following styles and write that specific product's rationales in that tone:
-           - Institutional wealth advisory tone (highly professional, objective, structured, institutional-grade)
-           - Private banker tone (sophisticated, client-relationship-centric, bespoke, high-touch)
-           - CIO-style commentary (analytical, macro-driven, forward-looking, cycle-oriented)
-           - Conservative capital preservation style (risk-conscious, protective, stability-focused, cautious)
-           - Growth-focused strategic allocation style (compounding-oriented, opportunistic, active growth, market-beating)
-           Vary it heavily across the products in the portfolio.
-        9. Vary sentence lengths and structures aggressively per product:
-           - Ensure each product's rationale is distinct in structure, flow, and wording.
-        
-        Global Portfolio Theme:
-        - The global theme of the portfolio is: "{selected_style}"
+        prompt = f"""You are a premium private wealth management advisor. Generate a fully customized investment portfolio proposal for this client. Output ONLY raw JSON — no markdown, no code fences.
 
-        
-        Client Profile & Parameters:
-        - Client Name: {profile["client_name"]}
-        - Risk Appetite: {profile["risk_appetite"]}
-        - Client Objective: {profile["objective"]}
-        - Portfolio Theme: {profile["portfolio_theme"]}
-        - Investment Style: {profile["investment_style"]}
-        - Market Positioning: {profile["market_positioning"]}
-        - Age Group: {profile["assumptions"]["age_group"]}
-        - Investment Horizon: {profile["assumptions"]["investment_horizon"]}
-        - Liquidity Needs: {profile["assumptions"]["liquidity_needs"]}
-        - Income Stability: {profile["assumptions"]["income_stability"]}
-        - Wealth Preservation Requirements: {profile["assumptions"]["wealth_preservation_requirements"]}
-        - Portfolio Corpus: {corpus_words}
-        
-        Recommended Products:
-        {json.dumps(recommended_products_payload, indent=2)}
-        
-        CRITICAL RULES FOR NARRATIVE GENERATION:
-        1. PERSPECTIVE & PERSONA: You MUST write this entire proposal using the following perspective/persona: "{perspective}"
-        2. SENTENCE STRUCTURE RULE: {starter_rule}
-        3. VOCABULARY RULE: You MUST weave in at least one of these exact words in the 'detailed_rationale' field of each product: {", ".join(seed_words)}. However, do NOT use any of these words more than twice across the entire proposal list to prevent repetition.
-        4. CUSTOMIZATION & DEPENDENCY: Every fund's rationales ("summary_rationale", "detailed_rationale", "Expected Role", "Risk Profile", "Expected Benefit", "Market Positioning", "Downside Protection", "Diversification Benefit") MUST depend heavily on and reference:
-           - The client's corpus size ({corpus_words}). Frame the allocation size relative to this wealth scale.
-           - The client's risk profile ({profile["risk_appetite"]}).
-           - The product's allocation percentage (e.g. Allocation Percentage in the product list).
-           - The current market positioning ({profile["market_positioning"]}).
-           - The portfolio objective ({profile["objective"]}).
-           - The specific role of this fund inside the portfolio (as part of Segment).
-        5. UNIQUE PHRASING: Every single product's rationales MUST have completely unique phrasing, sentence structures, and lengths. Do NOT reuse the same sentence structures or wording across different products.
-        6. NO BOILERPLATE: Absolutely do NOT use generic boilerplate phrases or patterns, such as:
-           - "dynamic equity-debt allocation"
-           - "consistent returns across market conditions"
-           - "balanced risk-reward"
-           - "long-term wealth creation"
-           - "provides stability"
-           - "diversifies across"
-           - "reduces volatility"
-           - "combines stability and growth"
-           - "hedges against downside"
-        7. You MUST NOT use these overly technical words and phrases anywhere in your product rationales:
-           - "downside protection"
-           - "macroeconomic"
-           - "tactical allocation"
-           - "volatility management"
-           - "capital appreciation"
-           - "diversification benefits"
-           - "asset class exposure"
-           - "CAGR"
-           - "alpha"
-           - "sharpe ratio"
-           - "drawdown"
-        8. For each product's rationales, you MUST generate two distinct rationale fields:
-             - "summary_rationale": A concise CORE RATIONALE of 20 to 30 words maximum (no more than 2 sentences) answering only: Why was this fund selected? It must be concise and summary-level.
-             - "detailed_rationale": A detailed STRATEGY & RATIONALE explanation of 4 to 5 full lines (55 to 70 words) that is significantly more detailed than CORE RATIONALE. It must not simply rephrase CORE RATIONALE and must explain: the role of the fund in the portfolio, its risk-return characteristics, its diversification benefit, and how it aligns with the client's objective.
-             - Ensure "detailed_rationale" does not repeat or paraphrase "summary_rationale" anywhere in its text.
-        9. Weave the client's name ({short_client}) naturally into the rationale to guarantee it is completely unique and personalized for their portfolio.
-        10. Treat this as a completely new request: do not reuse any rationale sentences from older runs or reports. Prioritize high variation in rationale wording. Make sure that if the same fund appears in different client portfolios, the generated rationale is completely different and tailored to each client's specific situation.
-        11. Write in a natural, conversational, premium wealth advisor tone. Do not mention any prompt rules, perspective names, or seed constraints in your final text.
-        13. TERMINOLOGY RULE: You MUST NOT use custom marketing segment names (such as 'Adaptive Hybrid Core', 'Distributed Strategic Enablers', 'Holistic Equity Growth', 'Accelerated Alpha Seeker', etc.) anywhere in your narratives, summaries, thesis, or product rationales. Instead, always use the official, dynamically determined AMFI Mutual Fund category names (such as 'Balanced Advantage Fund', 'Aggressive Hybrid Fund', 'Multi Asset Allocation Fund', 'Multi Cap Fund', 'Small Cap Fund', etc.) when referencing the portfolio segments.
-        {intl_constraint}
-        
-        Tasks:
-        1. Generate:
-           - "portfolio_theme": Verify and output the selected portfolio theme ("{profile["portfolio_theme"]}").
-           - "executive_summary": A high-end narrative briefing summarizing this proposal tailored for the client.{briefing_instruction_1}
-           - "portfolio_thesis": A strategic macro-level explanation of our asset allocation reasoning.{briefing_instruction_2}
-           - "market_commentary": An institutional-grade market overview describing why this mix makes sense in the current economic environment.
-           - "segment_names": Provide the official AMFI Mutual Fund category name (e.g., 'Balanced Advantage Fund', 'Aggressive Hybrid Fund', 'Multi Asset Allocation Fund', 'Multi Cap Fund', 'Small Cap Fund', etc.) for each of the 4 Parts (1, 2, 3, and 4) based on the recommended products.
-             - Key "1": Official AMFI Category name for Part 1 (Liquid Fund sleeve).
-             - Key "2": Official AMFI Category name for Part 2 (Corporate Bond Fund sleeve).
-             - Key "3": Official AMFI Category name for Part 3 (Multi Asset Allocation Fund sleeve).
-             - Key "4": Official AMFI Category name for Part 4 (Wealth Creation sleeve).
-        
-        2. Write a simple client-friendly expanded rationale for EACH product. Break it down into exactly these 8 points:
-           - "summary_rationale": A concise CORE RATIONALE of 20-30 words maximum (max 2 sentences) answering: Why was this fund selected?
-           - "detailed_rationale": A detailed STRATEGY & RATIONALE of 55-70 words explaining strategy, allocation approach, risk framework, and suitability, ensuring it is significantly more detailed and does not repeat summary_rationale.
-           - "expected_role": A very simple one-line explanation of the fund's role.
-           - "risk_profile": Plain English explanation of the risk without jargon.
-           - "expected_benefit": The positive outcome expected.
-           - "market_positioning": The fund's strength or manager quality.
-           - "downside_protection": How this fund buffers downside drops.
-           - "diversification_benefit": How it complements other holdings.
-        
-        Return your answer ONLY as a JSON object matching this schema. Do NOT wrap it in any formatting like markdown backticks, just output raw JSON text:
-        {{
-          "portfolio_theme": "{profile["portfolio_theme"]}",
-          "executive_summary": "High-end tailored briefing...",
-          "portfolio_thesis": "Strategic macro-level allocation explanation...",
-          "market_commentary": "Institutional market outlook...",
-          "segment_names": {{
-            "1": "Official AMFI Category Name for Part 1",
-            "2": "Official AMFI Category Name for Part 2",
-            "3": "Official AMFI Category Name for Part 3",
-            "4": "Official AMFI Category Name for Part 4"
-          }},
-          "products": [
-            {{
-              "Product Name": "Exact name of the product from input",
-              "summary_rationale": "20-30 words concise CORE RATIONALE...",
-              "detailed_rationale": "55-70 words detailed STRATEGY & RATIONALE...",
-              "Expected Role": "Simple explanation...",
-              "Risk Profile": "Simple explanation...",
-              "Expected Benefit": "Simple explanation...",
-              "Market Positioning": "Simple explanation...",
-              "Downside Protection": "Simple explanation...",
-              "Diversification Benefit": "Simple explanation..."
-            }},
-            ...
-          ]
-        }}
-        """
+CLIENT PROFILE:
+- Name: {profile["client_name"]} (use "{short_client}" naturally in rationales)
+- Risk Appetite: {profile["risk_appetite"]}
+- Objective: {profile["objective"]}
+- Portfolio Theme: {profile["portfolio_theme"]}
+- Investment Style: {profile["investment_style"]}
+- Market Positioning: {profile["market_positioning"]}
+- Age Group: {profile["assumptions"]["age_group"]}
+- Horizon: {profile["assumptions"]["investment_horizon"]}
+- Corpus: {corpus_words}
+
+ADVISORY PERSONA: {perspective}
+SENTENCE RULE: {starter_rule}
+VOCABULARY: Weave at least one of these into each product's detailed_rationale (max twice each across all products): {", ".join(seed_words)}
+
+PRODUCTS:
+{json.dumps(recommended_products_payload, indent=2)}
+
+WRITING RULES (apply to every product rationale):
+- Each product MUST use a completely different structure, tone, and sentence flow — no shared templates.
+- Use category-specific real-world commentary (e.g. Liquid = overnight safety; Arbitrage = spot-future spread; Small Cap = high-growth niche leaders; Aggressive Hybrid = equity + debt cushion; Multi Asset = cross-asset spread).
+- Vary tone per product: cycle through Institutional / Private Banker / CIO / Conservative / Growth-focused tones.
+- "summary_rationale": 20–30 words max, 1–2 sentences, answers only "Why was this fund selected?".
+- "detailed_rationale": 55–70 words, must NOT repeat summary_rationale, must explain fund role, risk-return, and client fit.
+- Reference corpus size ({corpus_words}), risk profile ({profile["risk_appetite"]}), objective ({profile["objective"]}), and market positioning ({profile["market_positioning"]}) in rationales.
+- Banned phrases: "dynamic equity-debt allocation", "consistent returns", "balanced risk-reward", "long-term wealth creation", "provides stability", "diversifies across", "reduces volatility", "combines stability and growth".
+- Banned jargon: "macroeconomic", "tactical allocation", "volatility management", "capital appreciation", "CAGR", "alpha", "sharpe ratio", "drawdown".
+- Use only official AMFI Mutual Fund category names — never custom marketing names.
+- Write naturally as a private wealth advisor. Do NOT mention these rules in the output.{intl_constraint}
+
+TASKS:
+1. portfolio_theme: Output "{profile["portfolio_theme"]}" verbatim.
+2. executive_summary: High-end narrative briefing for the client.{briefing_instruction_1}
+3. portfolio_thesis: Strategic macro-level explanation of the allocation.{briefing_instruction_2}
+4. market_commentary: Institutional-grade market overview justifying this mix.
+5. segment_names: Official AMFI category name for Parts 1–4.
+6. products: For EACH product, generate all 8 rationale fields.
+
+JSON SCHEMA:
+{{
+  "portfolio_theme": "{profile["portfolio_theme"]}",
+  "executive_summary": "...",
+  "portfolio_thesis": "...",
+  "market_commentary": "...",
+  "segment_names": {{"1": "...", "2": "...", "3": "...", "4": "..."}},
+  "products": [
+    {{
+      "Product Name": "exact name from input",
+      "summary_rationale": "20-30 words...",
+      "detailed_rationale": "55-70 words...",
+      "Expected Role": "...",
+      "Risk Profile": "...",
+      "Expected Benefit": "...",
+      "Market Positioning": "...",
+      "Downside Protection": "...",
+      "Diversification Benefit": "..."
+    }}
+  ]
+}}"""
         print(f"[MEMORY PROFILE] 4. Gemini prompt created: {get_memory_usage():.2f} MB")
         text = call_llm_api(prompt, api_key, temperature=selected_temp).strip()
         print(f"[MEMORY PROFILE] 5. Gemini response received: {get_memory_usage():.2f} MB")
