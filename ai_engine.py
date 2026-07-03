@@ -1775,14 +1775,52 @@ def _calculate_allocations(cleaned_products, corpus, profile=None):
 _SELECTED_GEMINI_MODEL = None
 
 def get_supported_gemini_model(api_key):
-    """Returns the Gemini model to use. Uses cached value or falls back to gemini-2.5-flash.
-    Skips the probe HTTP call to avoid an extra round-trip on every request."""
     global _SELECTED_GEMINI_MODEL
     if _SELECTED_GEMINI_MODEL:
         return _SELECTED_GEMINI_MODEL
-    # Pin to the best stable flash model directly — avoids a second API round-trip.
-    _SELECTED_GEMINI_MODEL = "gemini-2.5-flash"
-    return _SELECTED_GEMINI_MODEL
+    
+    # Try gemini-2.5-flash as default stable version
+    default_model = "gemini-2.5-flash"
+    try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
+        response = requests.get(url, timeout=10)
+        if response.status_code == 200:
+            models_data = response.json().get("models", [])
+            supported_models = []
+            for m in models_data:
+                name = m.get("name", "")
+                methods = m.get("supportedGenerationMethods", [])
+                if "generateContent" in methods and "models/gemini" in name:
+                    model_id = name.replace("models/", "")
+                    supported_models.append(model_id)
+            
+            # Select the best flash model
+            clean_flash_models = [
+                m for m in supported_models 
+                if "flash" in m and not any(x in m for x in ["preview", "tts", "image", "lite", "robotics"])
+            ]
+            if clean_flash_models:
+                # Prioritize stable releases
+                for m in ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]:
+                    if m in clean_flash_models:
+                        _SELECTED_GEMINI_MODEL = m
+                        return m
+                _SELECTED_GEMINI_MODEL = clean_flash_models[0]
+                return _SELECTED_GEMINI_MODEL
+            
+            flash_models = [m for m in supported_models if "flash" in m]
+            if flash_models:
+                _SELECTED_GEMINI_MODEL = flash_models[0]
+                return _SELECTED_GEMINI_MODEL
+            
+            if supported_models:
+                _SELECTED_GEMINI_MODEL = supported_models[0]
+                return _SELECTED_GEMINI_MODEL
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print(f"[AI Engine REST] Failed to dynamically list models: {e}")
+    return default_model
 
 def call_llm_api(prompt, api_key, temperature=0.95):
     """
@@ -1843,71 +1881,102 @@ def call_llm_api(prompt, api_key, temperature=0.95):
                 raise e2
                 
     else:
-        model_name = get_supported_gemini_model(api_key)
-        print(f"[AI Engine] AI request started (Gemini model: {model_name})")
-        print(f"[AI Engine] Prompt size: {len(prompt)} chars")
-
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
-        headers = {"Content-Type": "application/json"}
+        # Mask the API key for logging
+        masked_key = ""
+        if api_key:
+            if len(api_key) > 8:
+                masked_key = f"{api_key[:6]}...{api_key[-4:]}"
+            else:
+                masked_key = "..."
+        
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+        headers = {
+            "Content-Type": "application/json"
+        }
         payload = {
-            "contents": [{"parts": [{"text": prompt}]}],
+            "contents": [
+                {
+                    "parts": [
+                        {"text": prompt}
+                    ]
+                }
+            ],
             "generationConfig": {
                 "temperature": temperature,
                 "responseMimeType": "application/json"
             }
         }
-
-        def _do_gemini_request():
-            """Performs a single blocking Gemini POST and returns the parsed text."""
-            resp = requests.post(url, headers=headers, json=payload, timeout=90)
-            if resp.status_code == 429:
-                print("[AI Engine ERROR] Quota/Rate-limit exceeded (HTTP 429)")
-                resp.raise_for_status()
-            elif resp.status_code == 400:
-                print("[AI Engine ERROR] Bad Request (HTTP 400)")
-                resp.raise_for_status()
-            elif resp.status_code == 403:
-                print("[AI Engine ERROR] Forbidden (HTTP 403) - verify API key")
-                resp.raise_for_status()
-            elif resp.status_code == 404:
-                print("[AI Engine ERROR] Not Found (HTTP 404) - endpoint or model unavailable")
-                resp.raise_for_status()
-            resp.raise_for_status()
-
-            print(f"[AI Engine] Response size: {len(resp.content)} bytes")
-            res_json = resp.json()
-
+        
+        masked_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={masked_key}"
+        
+        print("==================================================")
+        print(f"[AI Engine REST] URL constructed: {masked_url}")
+        print(f"[AI Engine REST] Model name: gemini-2.5-flash")
+        print(f"[AI Engine REST] API Key length: {len(api_key) if api_key else 0}")
+        print(f"[AI Engine REST] API Key prefix/suffix: {masked_key}")
+        print(f"[AI Engine] Prompt size: {len(prompt)} chars")
+        print("==================================================")
+        
+        reached_google = False
+        try:
+            print(f"[AI Engine REST] Calling Gemini REST API (v1beta/gemini-2.5-flash)...")
+            response = requests.post(url, headers=headers, json=payload, timeout=45)
+            reached_google = True
+            status_code = response.status_code
+            
+            print(f"  - Gemini HTTP status code returned: {status_code}")
+            print(f"  - Gemini HTTP status phrase: {response.reason}")
+            
+            if status_code != 200:
+                print(f"[AI Engine REST] ERROR response received!")
+                print(f"  - HTTP Status: {status_code}")
+                print(f"  - Response Body: {response.text}")
+                
+            if status_code == 429:
+                print("Gemini API FAILED")
+                print("  - Reason: Quota/Rate-limit/Free-tier restrictions exceeded (HTTP 429 Too Many Requests)")
+                response.raise_for_status()
+            elif status_code == 400:
+                print("Gemini API FAILED")
+                print(f"  - Reason: Bad Request (HTTP 400). Response: {response.text}")
+                response.raise_for_status()
+            elif status_code == 403:
+                print("Gemini API FAILED")
+                print(f"  - Reason: Forbidden (HTTP 403). Possible invalid key or region restrictions. Response: {response.text}")
+                response.raise_for_status()
+            elif status_code == 404:
+                print("Gemini API FAILED")
+                print(f"  - Reason: Not Found (HTTP 404). Endpoint or Model not found. Response: {response.text}")
+                response.raise_for_status()
+                
+            response.raise_for_status()
+            res_json = response.json()
+            
             candidates = res_json.get("candidates", [])
             if candidates:
-                parts = candidates[0].get("content", {}).get("parts", [])
+                content = candidates[0].get("content", {})
+                parts = content.get("parts", [])
                 if parts:
                     text_out = parts[0].get("text", "")
                     if text_out:
-                        print("[AI Engine] Response parsed successfully")
+                        print("Gemini API LIVE SUCCESS")
+                        print("  - Model: gemini-2.5-flash, API Version: v1beta")
+                        print("  - Reason: API successfully returned text content.")
+                        print(f"[AI Engine] Response text size: {len(text_out)} chars")
                         return text_out
-            print("[AI Engine ERROR] Gemini returned empty/unexpected structure")
-            raise ValueError(f"Unexpected Gemini response: {res_json}")
-
-        try:
-            print("[AI Engine] Sending Gemini request...")
-            text_out = _do_gemini_request()
-            print(f"[AI Engine] Response text size: {len(text_out)} chars")
-            return text_out
-        except requests.exceptions.Timeout:
-            print("[AI Engine] Gemini request timed out. Retrying once...")
-            try:
-                text_out = _do_gemini_request()
-                print(f"[AI Engine] Retry succeeded. Response text size: {len(text_out)} chars")
-                return text_out
-            except Exception as retry_err:
-                import traceback
-                traceback.print_exc()
-                print(f"[AI Engine ERROR] Gemini retry also failed: {retry_err}")
-                raise retry_err
+                        
+            print("Gemini API FAILED")
+            print(f"  - Reason: Gemini returned an empty response or unexpected structure (HTTP {status_code})")
+            raise ValueError(f"Unexpected response format from Gemini: {res_json}")
         except Exception as e:
             import traceback
             traceback.print_exc()
-            print(f"[AI Engine ERROR] Gemini REST call failed: {e}")
+            print(f"[AI Engine REST] Gemini REST call failed: {e}")
+            print("Gemini API FAILED")
+            if not reached_google:
+                print("  - Reason: Network connection could not be established with Google endpoints.")
+            else:
+                print(f"  - Reason: Gemini API call failed. Error: {e}")
             raise e
 
 
